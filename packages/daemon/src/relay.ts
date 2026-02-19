@@ -126,11 +126,15 @@ export class Relay {
 
       // Read response body
       let body: unknown;
-      const contentType = res.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        body = await res.json();
+      const text = await res.text();
+      if (text.length === 0) {
+        body = null;
       } else {
-        body = await res.text();
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = text;
+        }
       }
 
       const response: HttpResponse = {
