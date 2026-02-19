@@ -2,11 +2,13 @@ import WebSocket from "ws";
 import {
   type HttpRequest,
   type HttpResponse,
+  type EventMessage,
   type OrchestratorMessage,
   type DaemonStatus,
   type Heartbeat,
   HARDCODED_DEVICE_KEY,
 } from "@mast/shared";
+import { SseSubscriber, type SseEvent } from "./sse-client.js";
 
 export class Relay {
   private ws: WebSocket | null = null;
@@ -16,6 +18,7 @@ export class Relay {
   private reconnecting = false;
   private shouldReconnect = true;
   private reconnectAttempt = 0;
+  private sseSubscriber: SseSubscriber | null = null;
 
   constructor(orchestratorUrl: string, opencodeBaseUrl: string) {
     this.orchestratorUrl = orchestratorUrl;
@@ -44,6 +47,9 @@ export class Relay {
         // Start heartbeat
         this.startHeartbeat();
 
+        // Start SSE subscription to OpenCode events
+        this.startSseSubscription();
+
         resolve();
       });
 
@@ -60,6 +66,7 @@ export class Relay {
           `WebSocket closed (code=${code}, reason=${reason.toString()})`
         );
         this.stopHeartbeat();
+        this.stopSseSubscription();
         this.ws = null;
 
         if (this.shouldReconnect) {
@@ -216,6 +223,35 @@ export class Relay {
     this.reconnecting = false;
   }
 
+  private startSseSubscription(): void {
+    this.stopSseSubscription();
+    this.sseSubscriber = new SseSubscriber(this.opencodeBaseUrl);
+
+    // Fire and forget — the subscriber runs until stopped
+    this.sseSubscriber.subscribe((event: SseEvent) => {
+      const msg: EventMessage = {
+        type: "event",
+        event: {
+          type: event.type,
+          data: event.data,
+        },
+        timestamp: new Date().toISOString(),
+      };
+      this.send(msg);
+    }).catch((err) => {
+      console.error("[relay] SSE subscription error:", err);
+    });
+
+    console.log("[relay] SSE subscription started");
+  }
+
+  private stopSseSubscription(): void {
+    if (this.sseSubscriber) {
+      this.sseSubscriber.stop();
+      this.sseSubscriber = null;
+    }
+  }
+
   private send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -225,6 +261,7 @@ export class Relay {
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
     this.stopHeartbeat();
+    this.stopSseSubscription();
 
     if (this.ws) {
       this.ws.close();

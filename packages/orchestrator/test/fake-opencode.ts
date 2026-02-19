@@ -3,6 +3,9 @@
  *
  * Provides a programmable HTTP server that impersonates OpenCode's API.
  * Tests register handlers per path, and the server responds accordingly.
+ *
+ * Phase 2 addition: SSE endpoint at GET /event.
+ * Tests call pushEvent() to emit events to all connected SSE clients.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
@@ -14,6 +17,11 @@ export interface FakeHandler {
   delay?: number;
 }
 
+export interface SseEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
 export interface FakeOpenCode {
   port: number;
   baseUrl: string;
@@ -22,6 +30,10 @@ export interface FakeOpenCode {
   handle(method: string, path: string, handler: FakeHandler): void;
   /** Get recorded requests (method, path, body) */
   requests(): Array<{ method: string; path: string; body: unknown }>;
+  /** Push an SSE event to all connected /event clients */
+  pushEvent(event: SseEvent): void;
+  /** Number of connected SSE clients */
+  sseClientCount(): number;
   /** Clear all handlers and recorded requests */
   reset(): void;
   close(): Promise<void>;
@@ -31,6 +43,7 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
   return new Promise((resolve) => {
     const handlers = new Map<string, FakeHandler>();
     const recorded: Array<{ method: string; path: string; body: unknown }> = [];
+    const sseClients: Set<ServerResponse> = new Set();
 
     function key(method: string, path: string): string {
       return `${method.toUpperCase()} ${path}`;
@@ -40,6 +53,25 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
       const method = (req.method ?? "GET").toUpperCase();
       const path = req.url ?? "/";
 
+      // --- SSE endpoint ---
+      if (method === "GET" && path === "/event") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+        // Send initial comment to establish connection
+        res.write(": connected\n\n");
+        sseClients.add(res);
+
+        req.on("close", () => {
+          sseClients.delete(res);
+        });
+        // Don't end the response — keep it open for SSE
+        return;
+      }
+
+      // --- Regular HTTP handlers ---
       // Read body
       let bodyText = "";
       for await (const chunk of req) {
@@ -91,11 +123,26 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
         requests() {
           return [...recorded];
         },
+        pushEvent(event: SseEvent) {
+          const data = `data: ${JSON.stringify(event)}\n\n`;
+          for (const client of sseClients) {
+            client.write(data);
+          }
+        },
+        sseClientCount() {
+          return sseClients.size;
+        },
         reset() {
           handlers.clear();
           recorded.length = 0;
+          // Don't close SSE connections on reset — they persist
         },
         close() {
+          // Close all SSE connections
+          for (const client of sseClients) {
+            client.end();
+          }
+          sseClients.clear();
           return new Promise<void>((res) => server.close(() => res()));
         },
       });

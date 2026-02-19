@@ -1,13 +1,18 @@
 import { Hono } from "hono";
 import { HARDCODED_API_TOKEN } from "@mast/shared";
 import type { DaemonConnection } from "./daemon-connection.js";
+import type { PhoneConnectionManager } from "./phone-connections.js";
 
-export function createApp(daemonConnection: DaemonConnection): Hono {
+export function createApp(daemonConnection: DaemonConnection, phoneConnections?: PhoneConnectionManager): Hono {
   const app = new Hono();
 
   // --- Health (no auth) ---
   app.get("/health", (c) => {
-    return c.json({ status: "ok", daemonConnected: daemonConnection.isConnected() });
+    return c.json({
+      status: "ok",
+      daemonConnected: daemonConnection.isConnected(),
+      phonesConnected: phoneConnections?.count() ?? 0,
+    });
   });
 
   // --- Auth middleware (skip /health) ---

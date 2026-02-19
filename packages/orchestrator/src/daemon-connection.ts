@@ -2,6 +2,7 @@ import type { WebSocket as WsWebSocket } from "ws";
 import {
   type HttpRequest,
   type HttpResponse,
+  type EventMessage,
   type DaemonMessage,
   type HeartbeatAck,
   generateRequestId,
@@ -18,6 +19,9 @@ interface PendingRequest {
 export class DaemonConnection {
   private ws: WsWebSocket | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
+
+  /** Callback for forwarding events (e.g., to phone clients) */
+  onEvent?: (event: EventMessage) => void;
 
   setConnection(ws: WsWebSocket): void {
     this.ws = ws;
@@ -118,7 +122,11 @@ export class DaemonConnection {
       }
 
       case "event": {
-        console.log(`[orchestrator] daemon event: ${msg.event.type}`);
+        const eventMsg = msg as EventMessage;
+        if (this.onEvent) {
+          this.onEvent(eventMsg);
+        }
+        console.log(`[orchestrator] daemon event: ${eventMsg.event.type}`);
         break;
       }
 

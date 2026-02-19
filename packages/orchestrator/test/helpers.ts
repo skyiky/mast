@@ -2,12 +2,14 @@
  * Test helpers: spin up the full relay stack for integration tests.
  *
  * Stack: Test runner (HTTP) -> Orchestrator (ephemeral port) -> Daemon Relay (WSS) -> Fake OpenCode (ephemeral port)
+ * Phase 2: Test runner also connects as phone WSS client to receive streamed events.
  */
 
 import { startServer, type ServerHandle } from "../src/server.js";
 import { Relay } from "../../daemon/src/relay.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
 import { HARDCODED_API_TOKEN } from "@mast/shared";
+import WebSocket from "ws";
 
 export interface TestStack {
   orchestrator: ServerHandle;
@@ -38,7 +40,8 @@ export async function startStack(): Promise<TestStack> {
   await relay.connect();
 
   // Small delay to let the orchestrator register the daemon connection
-  await sleep(50);
+  // and daemon's SSE subscriber to connect to fake OpenCode
+  await sleep(100);
 
   const baseUrl = `http://localhost:${orchestrator.port}`;
 
@@ -52,6 +55,49 @@ export async function startStack(): Promise<TestStack> {
       await orchestrator.close();
       await fakeOpenCode.close();
     },
+  };
+}
+
+/**
+ * Connect a phone WebSocket client to the orchestrator.
+ * Returns the WebSocket and a helper to collect received messages.
+ */
+export async function connectPhone(port: number): Promise<{
+  ws: WebSocket;
+  messages: () => unknown[];
+  close: () => Promise<void>;
+}> {
+  const ws = new WebSocket(
+    `ws://localhost:${port}/ws?token=${HARDCODED_API_TOKEN}`,
+  );
+
+  const received: unknown[] = [];
+
+  await new Promise<void>((resolve, reject) => {
+    ws.on("open", () => resolve());
+    ws.on("error", reject);
+  });
+
+  ws.on("message", (data) => {
+    try {
+      received.push(JSON.parse(data.toString()));
+    } catch {
+      received.push(data.toString());
+    }
+  });
+
+  return {
+    ws,
+    messages: () => [...received],
+    close: () =>
+      new Promise<void>((resolve) => {
+        if (ws.readyState === WebSocket.CLOSED) {
+          resolve();
+          return;
+        }
+        ws.on("close", () => resolve());
+        ws.close();
+      }),
   };
 }
 
