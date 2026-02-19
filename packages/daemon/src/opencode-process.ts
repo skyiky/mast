@@ -1,11 +1,32 @@
 import { spawn, type ChildProcess } from "child_process";
 
+export interface OpenCodeProcessConfig {
+  port?: number;
+  command?: string; // Override for testing (e.g., path to mock executable)
+  args?: string[];  // Override args for testing
+  onCrash?: (code: number | null, signal: string | null) => void;
+}
+
 export class OpenCodeProcess {
   private process: ChildProcess | null = null;
   private port: number;
+  private command: string;
+  private args: string[];
+  private _stopping = false; // true during intentional stop/restart
+  private onCrash?: (code: number | null, signal: string | null) => void;
 
-  constructor(port: number = 4096) {
-    this.port = port;
+  constructor(config?: OpenCodeProcessConfig | number) {
+    // Backwards-compatible: accept bare port number or config object
+    if (typeof config === "number") {
+      this.port = config;
+      this.command = "opencode";
+      this.args = ["serve", "--port", String(config)];
+    } else {
+      this.port = config?.port ?? 4096;
+      this.command = config?.command ?? "opencode";
+      this.args = config?.args ?? ["serve", "--port", String(this.port)];
+      this.onCrash = config?.onCrash;
+    }
   }
 
   async start(): Promise<void> {
@@ -14,8 +35,10 @@ export class OpenCodeProcess {
       return;
     }
 
+    this._stopping = false;
+
     return new Promise<void>((resolve, reject) => {
-      const child = spawn("opencode", ["serve", "--port", String(this.port)], {
+      const child = spawn(this.command, this.args, {
         stdio: ["ignore", "pipe", "pipe"],
         shell: true,
       });
@@ -23,7 +46,7 @@ export class OpenCodeProcess {
       child.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "ENOENT") {
           console.error(
-            "[opencode] 'opencode' command not found. Is it installed and on PATH?"
+            `[opencode] '${this.command}' command not found. Is it installed and on PATH?`
           );
         } else {
           console.error("[opencode] Failed to start process:", err.message);
@@ -47,12 +70,18 @@ export class OpenCodeProcess {
       });
 
       child.on("exit", (code, signal) => {
-        if (this.process) {
-          console.warn(
-            `[opencode] Process exited unexpectedly (code=${code}, signal=${signal})`
-          );
-        }
+        const wasRunning = this.process !== null;
         this.process = null;
+
+        if (wasRunning && !this._stopping) {
+          // Unexpected exit — this is a crash
+          console.warn(
+            `[opencode] Process crashed (code=${code}, signal=${signal})`
+          );
+          if (this.onCrash) {
+            this.onCrash(code, signal);
+          }
+        }
       });
 
       this.process = child;
@@ -63,38 +92,39 @@ export class OpenCodeProcess {
     });
   }
 
-  async waitForReady(): Promise<void> {
+  async waitForReady(maxAttempts?: number, intervalMs?: number): Promise<void> {
     const url = `${this.baseUrl}/global/health`;
-    const maxAttempts = 30;
-    const intervalMs = 1000;
+    const attempts = maxAttempts ?? 30;
+    const interval = intervalMs ?? 1000;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const res = await fetch(url);
         if (res.ok) {
           return;
         }
         console.log(
-          `[opencode] Health check attempt ${attempt}/${maxAttempts}: status ${res.status}`
+          `[opencode] Health check attempt ${attempt}/${attempts}: status ${res.status}`
         );
       } catch {
         console.log(
-          `[opencode] Health check attempt ${attempt}/${maxAttempts}: not reachable`
+          `[opencode] Health check attempt ${attempt}/${attempts}: not reachable`
         );
       }
-      await sleep(intervalMs);
+      await sleep(interval);
     }
 
     throw new Error(
-      `OpenCode server did not become ready within ${maxAttempts} seconds`
+      `OpenCode server did not become ready within ${attempts} seconds`
     );
   }
 
   async stop(): Promise<void> {
     if (!this.process) return;
 
+    this._stopping = true;
     const child = this.process;
-    this.process = null; // clear so exit handler doesn't warn
+    this.process = null;
 
     return new Promise<void>((resolve) => {
       const killTimeout = setTimeout(() => {
@@ -109,6 +139,17 @@ export class OpenCodeProcess {
 
       child.kill("SIGTERM");
     });
+  }
+
+  /**
+   * Restart the OpenCode process: stop, then start + wait for ready.
+   */
+  async restart(): Promise<void> {
+    console.log("[opencode] Restarting...");
+    await this.stop();
+    await this.start();
+    await this.waitForReady();
+    console.log("[opencode] Restart complete");
   }
 
   isRunning(): boolean {
