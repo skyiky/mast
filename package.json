@@ -1,5 +1,8 @@
 {
   "name": "mast",
   "private": true,
-  "workspaces": ["packages/*"]
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "npm test --workspace=packages/orchestrator"
+  }
 }

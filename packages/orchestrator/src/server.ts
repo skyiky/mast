@@ -6,54 +6,79 @@ import { HARDCODED_DEVICE_KEY } from "@mast/shared";
 import { DaemonConnection } from "./daemon-connection.js";
 import { createApp } from "./routes.js";
 
-export function startServer(port: number): void {
-  const daemonConnection = new DaemonConnection();
-  const app = createApp(daemonConnection);
+export interface ServerHandle {
+  server: ReturnType<typeof createServer>;
+  wss: WebSocketServer;
+  daemonConnection: DaemonConnection;
+  port: number;
+  close: () => Promise<void>;
+}
 
-  const requestListener = getRequestListener(app.fetch);
-  const server = createServer(requestListener);
+export function startServer(port: number): Promise<ServerHandle> {
+  return new Promise((resolve) => {
+    const daemonConnection = new DaemonConnection();
+    const app = createApp(daemonConnection);
 
-  const wss = new WebSocketServer({ noServer: true });
+    const requestListener = getRequestListener(app.fetch);
+    const server = createServer(requestListener);
 
-  server.on("upgrade", (request, socket, head) => {
-    const parsed = parseUrl(request.url ?? "", true);
+    const wss = new WebSocketServer({ noServer: true });
 
-    if (parsed.pathname !== "/daemon") {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-      return;
-    }
+    server.on("upgrade", (request, socket, head) => {
+      const parsed = parseUrl(request.url ?? "", true);
 
-    const token = parsed.query.token;
-    if (token !== HARDCODED_DEVICE_KEY) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
+      if (parsed.pathname !== "/daemon") {
+        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        socket.destroy();
+        return;
+      }
 
-    wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
-      daemonConnection.setConnection(ws);
+      const token = parsed.query.token;
+      if (token !== HARDCODED_DEVICE_KEY) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
 
-      ws.on("message", (data) => {
-        try {
-          daemonConnection.handleMessage(data.toString());
-        } catch (err) {
-          console.error("[orchestrator] error handling daemon message:", err);
-        }
-      });
+      wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
+        daemonConnection.setConnection(ws);
 
-      ws.on("close", () => {
-        daemonConnection.clearConnection();
-      });
+        ws.on("message", (data) => {
+          try {
+            daemonConnection.handleMessage(data.toString());
+          } catch (err) {
+            console.error("[orchestrator] error handling daemon message:", err);
+          }
+        });
 
-      ws.on("error", (err) => {
-        console.error("[orchestrator] daemon ws error:", err);
-        daemonConnection.clearConnection();
+        ws.on("close", () => {
+          daemonConnection.clearConnection();
+        });
+
+        ws.on("error", (err) => {
+          console.error("[orchestrator] daemon ws error:", err);
+          daemonConnection.clearConnection();
+        });
       });
     });
-  });
 
-  server.listen(port, () => {
-    console.log(`Mast orchestrator listening on port ${port}`);
+    server.listen(port, () => {
+      const addr = server.address();
+      const actualPort = typeof addr === "object" && addr ? addr.port : port;
+      console.log(`Mast orchestrator listening on port ${actualPort}`);
+
+      resolve({
+        server,
+        wss,
+        daemonConnection,
+        port: actualPort,
+        close: () =>
+          new Promise<void>((res) => {
+            wss.close(() => {
+              server.close(() => res());
+            });
+          }),
+      });
+    });
   });
 }
