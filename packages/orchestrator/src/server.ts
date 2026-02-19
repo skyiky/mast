@@ -2,10 +2,17 @@ import { createServer } from "node:http";
 import { parse as parseUrl } from "node:url";
 import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
-import { HARDCODED_DEVICE_KEY, HARDCODED_API_TOKEN } from "@mast/shared";
+import { HARDCODED_DEVICE_KEY, HARDCODED_API_TOKEN, type EventMessage } from "@mast/shared";
 import { DaemonConnection } from "./daemon-connection.js";
 import { PhoneConnectionManager } from "./phone-connections.js";
 import { createApp } from "./routes.js";
+import type { SessionStore } from "./session-store.js";
+import type { PushNotifier } from "./push-notifications.js";
+
+export interface ServerConfig {
+  store?: SessionStore;
+  pushNotifier?: PushNotifier;
+}
 
 export interface ServerHandle {
   server: ReturnType<typeof createServer>;
@@ -17,15 +24,41 @@ export interface ServerHandle {
   close: () => Promise<void>;
 }
 
-export function startServer(port: number): Promise<ServerHandle> {
+export function startServer(
+  port: number,
+  config?: ServerConfig,
+): Promise<ServerHandle> {
   return new Promise((resolve) => {
     const daemonConnection = new DaemonConnection();
     const phoneConnections = new PhoneConnectionManager();
-    const app = createApp(daemonConnection, phoneConnections);
+    const store = config?.store;
+    const pushNotifier = config?.pushNotifier;
 
-    // Wire daemon events to phone clients
-    daemonConnection.onEvent = (event) => {
+    const app = createApp({ daemonConnection, phoneConnections, store });
+
+    // Wire daemon events to phone clients + cache + push
+    daemonConnection.onEvent = (event: EventMessage) => {
+      // 1. Forward to phone clients (sync, immediate)
       phoneConnections.broadcast(event);
+
+      // 2. Cache in session store (async, fire-and-forget)
+      if (store) {
+        cacheEvent(store, event).catch((err) => {
+          console.error("[orchestrator] cache error:", err);
+        });
+      }
+
+      // 3. Push notification decision (async, fire-and-forget)
+      if (pushNotifier) {
+        pushNotifier
+          .handleEvent({
+            type: event.event.type,
+            properties: event.event.data as Record<string, unknown> | undefined,
+          })
+          .catch((err) => {
+            console.error("[orchestrator] push error:", err);
+          });
+      }
     };
 
     const requestListener = getRequestListener(app.fetch);
@@ -52,6 +85,11 @@ export function startServer(port: number): Promise<ServerHandle> {
         wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
           daemonConnection.setConnection(ws);
 
+          // Cancel pending daemon-offline push notification
+          if (pushNotifier) {
+            pushNotifier.handleDaemonReconnect();
+          }
+
           ws.on("message", (data) => {
             try {
               daemonConnection.handleMessage(data.toString());
@@ -62,11 +100,18 @@ export function startServer(port: number): Promise<ServerHandle> {
 
           ws.on("close", () => {
             daemonConnection.clearConnection();
+            // Schedule deferred daemon-offline push
+            if (pushNotifier) {
+              pushNotifier.handleDaemonDisconnect();
+            }
           });
 
           ws.on("error", (err) => {
             console.error("[orchestrator] daemon ws error:", err);
             daemonConnection.clearConnection();
+            if (pushNotifier) {
+              pushNotifier.handleDaemonDisconnect();
+            }
           });
         });
         return;
@@ -125,4 +170,54 @@ export function startServer(port: number): Promise<ServerHandle> {
       });
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Event caching helpers
+// ---------------------------------------------------------------------------
+
+async function cacheEvent(
+  store: SessionStore,
+  event: EventMessage,
+): Promise<void> {
+  const data = event.event.data as Record<string, unknown> | undefined;
+  if (!data) return;
+
+  const sessionId = data.sessionID as string | undefined;
+
+  switch (event.event.type) {
+    case "message.created": {
+      const msg = data.message as
+        | { id: string; role: string }
+        | undefined;
+      if (msg && sessionId) {
+        await store.upsertSession({ id: sessionId });
+        await store.addMessage({
+          id: msg.id,
+          sessionId,
+          role: msg.role,
+          parts: [],
+        });
+      }
+      break;
+    }
+
+    case "message.part.created":
+    case "message.part.updated": {
+      const messageId = data.messageID as string | undefined;
+      const part = data.part as { type: string; content?: string } | undefined;
+      if (messageId && part) {
+        await store.updateMessageParts(messageId, [part]);
+      }
+      break;
+    }
+
+    case "message.completed": {
+      const messageId = data.messageID as string | undefined;
+      if (messageId) {
+        await store.markMessageComplete(messageId);
+      }
+      break;
+    }
+  }
 }

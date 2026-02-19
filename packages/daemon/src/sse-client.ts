@@ -67,9 +67,15 @@ export class SseSubscriber {
             if (line.startsWith("data: ")) {
               const jsonStr = line.slice(6);
               try {
-                const parsed = JSON.parse(jsonStr) as SseEvent;
+                const parsed = JSON.parse(jsonStr);
                 if (parsed.type) {
-                  onEvent(parsed);
+                  // Real OpenCode sends { type, properties: { ... } }
+                  // Normalize to SseEvent { type, data }
+                  const { type, properties, data, ...rest } = parsed;
+                  onEvent({
+                    type,
+                    data: data ?? properties ?? rest,
+                  });
                 }
               } catch {
                 console.error("[sse] failed to parse event data:", jsonStr);

@@ -11,9 +11,10 @@
     "test:integration": "node --import tsx --test test/integration.test.ts"
   },
   "dependencies": {
-    "@mast/shared": "*",
-    "hono": "^4",
     "@hono/node-server": "^1",
+    "@mast/shared": "*",
+    "@supabase/supabase-js": "^2.97.0",
+    "hono": "^4",
     "ws": "^8"
   },
   "devDependencies": {
