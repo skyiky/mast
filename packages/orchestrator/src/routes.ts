@@ -3,15 +3,17 @@ import { HARDCODED_API_TOKEN } from "@mast/shared";
 import type { DaemonConnection } from "./daemon-connection.js";
 import type { PhoneConnectionManager } from "./phone-connections.js";
 import type { SessionStore } from "./session-store.js";
+import type { PairingManager } from "./pairing.js";
 
 export interface RouteDeps {
   daemonConnection: DaemonConnection;
   phoneConnections?: PhoneConnectionManager;
   store?: SessionStore;
+  pairingManager?: PairingManager;
 }
 
 export function createApp(deps: RouteDeps): Hono {
-  const { daemonConnection, phoneConnections, store } = deps;
+  const { daemonConnection, phoneConnections, store, pairingManager } = deps;
   const app = new Hono();
 
   // --- Health (no auth) ---
@@ -222,6 +224,30 @@ export function createApp(deps: RouteDeps): Hono {
     }
     await store.savePushToken(body.token);
     return c.json({ ok: true }, 200);
+  });
+
+  // --- Pairing routes (Phase 4) ---
+
+  // Verify a pairing code (phone submits code → gets device key)
+  app.post("/pair/verify", async (c) => {
+    if (!pairingManager) {
+      return c.json({ error: "Pairing not configured" }, 500);
+    }
+    let body: { code?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid body" }, 400);
+    }
+    if (!body.code) {
+      return c.json({ error: "Missing code" }, 400);
+    }
+
+    const result = pairingManager.verify(body.code);
+    if (result.success) {
+      return c.json({ success: true, deviceKey: result.deviceKey }, 200);
+    }
+    return c.json({ success: false, error: result.error }, 400);
   });
 
   return app;

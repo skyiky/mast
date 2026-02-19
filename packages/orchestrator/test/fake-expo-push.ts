@@ -84,6 +84,7 @@ export function createFakeExpoPush(): Promise<FakeExpoPush> {
           recorded.length = 0;
         },
         close() {
+          server.closeAllConnections();
           return new Promise<void>((res) => server.close(() => res()));
         },
       });

@@ -34,6 +34,8 @@ export interface FakeOpenCode {
   pushEvent(event: SseEvent): void;
   /** Number of connected SSE clients */
   sseClientCount(): number;
+  /** Set whether /global/health returns 200 or 503 */
+  setHealthy(healthy: boolean): void;
   /** Clear all handlers and recorded requests */
   reset(): void;
   close(): Promise<void>;
@@ -44,6 +46,7 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
     const handlers = new Map<string, FakeHandler>();
     const recorded: Array<{ method: string; path: string; body: unknown }> = [];
     const sseClients: Set<ServerResponse> = new Set();
+    let healthy = true;
 
     function key(method: string, path: string): string {
       return `${method.toUpperCase()} ${path}`;
@@ -52,6 +55,18 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const method = (req.method ?? "GET").toUpperCase();
       const path = req.url ?? "/";
+
+      // --- Health endpoint (toggleable) ---
+      if (method === "GET" && path === "/global/health") {
+        if (healthy) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "ok" }));
+        } else {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "error" }));
+        }
+        return;
+      }
 
       // --- SSE endpoint ---
       if (method === "GET" && path === "/event") {
@@ -132,6 +147,9 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
         sseClientCount() {
           return sseClients.size;
         },
+        setHealthy(h: boolean) {
+          healthy = h;
+        },
         reset() {
           handlers.clear();
           recorded.length = 0;
@@ -143,6 +161,8 @@ export function createFakeOpenCode(): Promise<FakeOpenCode> {
             client.end();
           }
           sseClients.clear();
+          // Force close all keep-alive connections so server.close() doesn't hang
+          server.closeAllConnections();
           return new Promise<void>((res) => server.close(() => res()));
         },
       });

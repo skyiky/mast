@@ -15,6 +15,7 @@ import {
   PushDeduplicator,
   type PushConfig,
 } from "../src/push-notifications.js";
+import { PairingManager } from "../src/pairing.js";
 import { createFakeExpoPush, type FakeExpoPush } from "./fake-expo-push.js";
 import { HARDCODED_API_TOKEN } from "@mast/shared";
 import WebSocket from "ws";
@@ -34,6 +35,10 @@ export interface Phase3TestStack extends TestStack {
   pushNotifier: PushNotifier;
   fakeExpoPush: FakeExpoPush;
   deduplicator: PushDeduplicator;
+}
+
+export interface Phase4TestStack extends Phase3TestStack {
+  pairingManager: PairingManager;
 }
 
 /**
@@ -60,17 +65,19 @@ export async function startStack(): Promise<TestStack> {
 
   const baseUrl = `http://localhost:${orchestrator.port}`;
 
-  return {
+  const result: TestStack = {
     orchestrator,
     relay,
     fakeOpenCode,
     baseUrl,
     async close() {
-      await relay.disconnect();
+      await result.relay.disconnect();
       await orchestrator.close();
       await fakeOpenCode.close();
     },
   };
+
+  return result;
 }
 
 /**
@@ -115,7 +122,7 @@ export async function startPhase3Stack(opts?: {
 
   const baseUrl = `http://localhost:${orchestrator.port}`;
 
-  return {
+  const result: Phase3TestStack = {
     orchestrator,
     relay,
     fakeOpenCode,
@@ -126,12 +133,14 @@ export async function startPhase3Stack(opts?: {
     baseUrl,
     async close() {
       deduplicator.reset();
-      await relay.disconnect();
+      await result.relay.disconnect();
       await orchestrator.close();
       await fakeOpenCode.close();
       await fakeExpoPush.close();
     },
   };
+
+  return result;
 }
 
 /**
@@ -229,6 +238,75 @@ export async function unauthRequest(
     }
   }
   return { status: res.status, body: parsed };
+}
+
+/**
+ * Start the full stack with Phase 4 additions: pairing manager + everything from Phase 3.
+ * Does NOT auto-connect a daemon relay — tests can connect daemon manually,
+ * or use the returned relay which connects with the hardcoded key.
+ */
+export async function startPhase4Stack(opts?: {
+  workingIntervalMs?: number;
+  disconnectGraceMs?: number;
+  skipDaemonConnect?: boolean;
+}): Promise<Phase4TestStack> {
+  // 1. Start fake services
+  const fakeOpenCode = await createFakeOpenCode();
+  const fakeExpoPush = await createFakeExpoPush();
+
+  // 2. Create session store + push + pairing
+  const store = new InMemorySessionStore();
+  const pairingManager = new PairingManager();
+  const deduplicator = new PushDeduplicator({
+    workingIntervalMs: opts?.workingIntervalMs ?? 5 * 60 * 1000,
+    disconnectGraceMs: opts?.disconnectGraceMs ?? 30 * 1000,
+  });
+
+  // 3. Start orchestrator
+  let phoneConnectedFn = () => false;
+  const pushConfig: PushConfig = {
+    pushApiUrl: fakeExpoPush.url,
+    isPhoneConnected: () => phoneConnectedFn(),
+  };
+  const pushNotifier = new PushNotifier(store, pushConfig, deduplicator);
+
+  const orchestrator = await startServer(0, { store, pushNotifier, pairingManager });
+
+  // Wire the phone connected check to the actual orchestrator
+  phoneConnectedFn = () => orchestrator.phoneConnections.count() > 0;
+
+  // 4. Start daemon relay (unless skipped)
+  const relay = new Relay(
+    `ws://localhost:${orchestrator.port}`,
+    fakeOpenCode.baseUrl,
+  );
+  if (!opts?.skipDaemonConnect) {
+    await relay.connect();
+    await sleep(100);
+  }
+
+  const baseUrl = `http://localhost:${orchestrator.port}`;
+
+  const result: Phase4TestStack = {
+    orchestrator,
+    relay,
+    fakeOpenCode,
+    fakeExpoPush,
+    store,
+    pushNotifier,
+    deduplicator,
+    pairingManager,
+    baseUrl,
+    async close() {
+      deduplicator.reset();
+      await result.relay.disconnect();
+      await orchestrator.close();
+      await fakeOpenCode.close();
+      await fakeExpoPush.close();
+    },
+  };
+
+  return result;
 }
 
 export function sleep(ms: number): Promise<void> {

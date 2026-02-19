@@ -20,7 +20,20 @@ export interface HeartbeatAck {
   timestamp: string;
 }
 
-export type OrchestratorMessage = HttpRequest | HeartbeatAck;
+export interface SyncRequest {
+  type: "sync_request";
+  cachedSessionIds: string[];
+  lastEventTimestamp: string; // ISO 8601
+}
+
+export interface PairResponse {
+  type: "pair_response";
+  success: boolean;
+  deviceKey?: string;
+  error?: string;
+}
+
+export type OrchestratorMessage = HttpRequest | HeartbeatAck | SyncRequest | PairResponse;
 
 // ---------------------------------------------------------------------------
 // Messages: Daemon -> Orchestrator
@@ -53,7 +66,25 @@ export interface Heartbeat {
   timestamp: string;
 }
 
-export type DaemonMessage = HttpResponse | EventMessage | DaemonStatus | Heartbeat;
+export interface SyncResponse {
+  type: "sync_response";
+  sessions: Array<{
+    id: string;
+    messages: Array<{
+      id: string;
+      role: string;
+      parts: unknown[];
+      completed: boolean;
+    }>;
+  }>;
+}
+
+export interface PairRequest {
+  type: "pair_request";
+  pairingCode: string;
+}
+
+export type DaemonMessage = HttpResponse | EventMessage | DaemonStatus | Heartbeat | SyncResponse | PairRequest;
 
 // ---------------------------------------------------------------------------
 // Constants (Phase 1 — hardcoded, no real auth)
@@ -68,4 +99,9 @@ export const HARDCODED_API_TOKEN = "mast-api-token-phase1";
 
 export function generateRequestId(): string {
   return crypto.randomUUID();
+}
+
+export function generatePairingCode(): string {
+  // 6-digit numeric code (100000-999999)
+  return String(100000 + Math.floor(Math.random() * 900000));
 }

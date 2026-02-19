@@ -2,16 +2,19 @@ import { createServer } from "node:http";
 import { parse as parseUrl } from "node:url";
 import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
-import { HARDCODED_DEVICE_KEY, HARDCODED_API_TOKEN, type EventMessage } from "@mast/shared";
+import { HARDCODED_DEVICE_KEY, HARDCODED_API_TOKEN, type EventMessage, type PairRequest } from "@mast/shared";
 import { DaemonConnection } from "./daemon-connection.js";
 import { PhoneConnectionManager } from "./phone-connections.js";
 import { createApp } from "./routes.js";
 import type { SessionStore } from "./session-store.js";
 import type { PushNotifier } from "./push-notifications.js";
+import { PairingManager } from "./pairing.js";
+import { EventTimestampTracker, buildSyncRequest, processSyncResponse } from "./sync.js";
 
 export interface ServerConfig {
   store?: SessionStore;
   pushNotifier?: PushNotifier;
+  pairingManager?: PairingManager;
 }
 
 export interface ServerHandle {
@@ -33,11 +36,16 @@ export function startServer(
     const phoneConnections = new PhoneConnectionManager();
     const store = config?.store;
     const pushNotifier = config?.pushNotifier;
+    const pairingManager = config?.pairingManager ?? new PairingManager();
+    const timestampTracker = new EventTimestampTracker();
 
-    const app = createApp({ daemonConnection, phoneConnections, store });
+    const app = createApp({ daemonConnection, phoneConnections, store, pairingManager });
 
     // Wire daemon events to phone clients + cache + push
     daemonConnection.onEvent = (event: EventMessage) => {
+      // Track event timestamp for sync protocol
+      timestampTracker.update(event.timestamp);
+
       // 1. Forward to phone clients (sync, immediate)
       phoneConnections.broadcast(event);
 
@@ -61,6 +69,22 @@ export function startServer(
       }
     };
 
+    // Wire sync_response handling
+    daemonConnection.onSyncResponse = (response) => {
+      if (store) {
+        processSyncResponse(response, store, phoneConnections).catch((err) => {
+          console.error("[orchestrator] sync response processing error:", err);
+        });
+      }
+    };
+
+    // Wire pair_request handling
+    daemonConnection.onPairRequest = (request: PairRequest) => {
+      // Pair request is handled via the pairing WSS path, not here.
+      // This callback exists for extensibility but pairing is managed
+      // directly in the WSS upgrade handler below.
+    };
+
     const requestListener = getRequestListener(app.fetch);
     const server = createServer(requestListener);
 
@@ -75,19 +99,62 @@ export function startServer(
 
       // --- Daemon upgrade: /daemon?token=<device_key> ---
       if (parsed.pathname === "/daemon") {
-        const token = parsed.query.token;
-        if (token !== HARDCODED_DEVICE_KEY) {
+        const token = parsed.query.token as string | undefined;
+
+        // Accept: hardcoded key, dynamically issued key, or "pairing" for unpaired daemons
+        const isPairing = token === "pairing";
+        const isAuthorized =
+          token === HARDCODED_DEVICE_KEY ||
+          (token !== undefined && pairingManager.isValidKey(token)) ||
+          isPairing;
+
+        if (!isAuthorized) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
         }
 
         wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
+          if (isPairing) {
+            // Pairing mode — wait for pair_request, don't set as main daemon
+            ws.on("message", (data) => {
+              try {
+                const msg = JSON.parse(data.toString());
+                if (msg.type === "pair_request") {
+                  pairingManager.registerCode(msg.pairingCode, ws);
+                }
+              } catch (err) {
+                console.error("[orchestrator] pairing message error:", err);
+              }
+            });
+
+            ws.on("close", () => {
+              pairingManager.handleDaemonDisconnect(ws);
+            });
+
+            ws.on("error", () => {
+              pairingManager.handleDaemonDisconnect(ws);
+            });
+            return;
+          }
+
+          // Normal authenticated daemon connection
           daemonConnection.setConnection(ws);
 
           // Cancel pending daemon-offline push notification
           if (pushNotifier) {
             pushNotifier.handleDaemonReconnect();
+          }
+
+          // Send sync_request if we have cached data
+          if (store) {
+            buildSyncRequest(store, timestampTracker.get())
+              .then((syncReq) => {
+                daemonConnection.sendRaw(syncReq);
+              })
+              .catch((err) => {
+                console.error("[orchestrator] failed to build sync request:", err);
+              });
           }
 
           ws.on("message", (data) => {
@@ -163,6 +230,7 @@ export function startServer(
             phoneConnections.closeAll();
             phoneWss.close(() => {
               wss.close(() => {
+                server.closeAllConnections();
                 server.close(() => res());
               });
             });

@@ -5,6 +5,9 @@ import {
   type EventMessage,
   type DaemonMessage,
   type HeartbeatAck,
+  type SyncRequest,
+  type SyncResponse,
+  type PairRequest,
   generateRequestId,
 } from "@mast/shared";
 
@@ -22,6 +25,12 @@ export class DaemonConnection {
 
   /** Callback for forwarding events (e.g., to phone clients) */
   onEvent?: (event: EventMessage) => void;
+
+  /** Callback for sync responses from daemon */
+  onSyncResponse?: (response: SyncResponse) => void;
+
+  /** Callback for pairing requests from daemon */
+  onPairRequest?: (request: PairRequest) => void;
 
   setConnection(ws: WsWebSocket): void {
     this.ws = ws;
@@ -41,6 +50,13 @@ export class DaemonConnection {
 
   isConnected(): boolean {
     return this.ws !== null;
+  }
+
+  /** Send a raw message to the daemon (used for sync_request, pair_response, etc.) */
+  sendRaw(msg: unknown): void {
+    if (this.ws) {
+      this.ws.send(JSON.stringify(msg));
+    }
   }
 
   sendRequest(
@@ -127,6 +143,24 @@ export class DaemonConnection {
           this.onEvent(eventMsg);
         }
         console.log(`[orchestrator] daemon event: ${eventMsg.event.type}`);
+        break;
+      }
+
+      case "sync_response": {
+        const syncResponse = msg as SyncResponse;
+        if (this.onSyncResponse) {
+          this.onSyncResponse(syncResponse);
+        }
+        console.log(`[orchestrator] sync_response received (${syncResponse.sessions.length} sessions)`);
+        break;
+      }
+
+      case "pair_request": {
+        const pairRequest = msg as PairRequest;
+        if (this.onPairRequest) {
+          this.onPairRequest(pairRequest);
+        }
+        console.log(`[orchestrator] pair_request received`);
         break;
       }
 
