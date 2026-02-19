@@ -1,0 +1,5 @@
+{
+  "name": "mast",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
