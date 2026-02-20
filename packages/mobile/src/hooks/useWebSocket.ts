@@ -1,171 +1,128 @@
 /**
  * WebSocket hook — connects to the orchestrator and dispatches
  * events into Zustand stores.
+ *
+ * Key design decisions to avoid infinite render loops:
+ *
+ * 1. Store actions are accessed via getState() inside callbacks, NOT
+ *    subscribed as React values. This means they never appear in
+ *    useCallback/useEffect dependency arrays.
+ *
+ * 2. A `disposedRef` flag prevents reconnection and state updates
+ *    after the useEffect cleanup runs.
+ *
+ * 3. The cleanup detaches onclose/onerror BEFORE calling ws.close()
+ *    to prevent the close handler from scheduling a stale reconnect.
+ *
+ * 4. The effect only depends on [wsUrl, apiToken, paired] — the
+ *    values that determine WHETHER and WHERE to connect.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useConnectionStore } from "../stores/connection";
 import { useSessionStore } from "../stores/sessions";
-import type { MessagePart } from "../stores/sessions";
+import { handleWsEvent } from "../lib/event-handler";
 
 export function useWebSocket() {
+  // Only subscribe to values that determine connection parameters.
+  // Store actions are accessed via getState() inside callbacks to
+  // avoid dependency-array instability.
   const wsUrl = useConnectionStore((s) => s.wsUrl);
   const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
-  const setWsConnected = useConnectionStore((s) => s.setWsConnected);
-  const setDaemonStatus = useConnectionStore((s) => s.setDaemonStatus);
-
-  const addMessage = useSessionStore((s) => s.addMessage);
-  const updateLastTextPart = useSessionStore((s) => s.updateLastTextPart);
-  const markMessageComplete = useSessionStore((s) => s.markMessageComplete);
-  const markAllStreamsComplete = useSessionStore((s) => s.markAllStreamsComplete);
-  const addPermission = useSessionStore((s) => s.addPermission);
-  const updatePermission = useSessionStore((s) => s.updatePermission);
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const connect = useCallback(() => {
-    if (!wsUrl || !paired) return;
-
-    const url = `${wsUrl}/ws?token=${apiToken}`;
-    const ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      console.log("[ws] connected");
-      setWsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string);
-
-        // Status messages from orchestrator
-        if (data.type === "status") {
-          setDaemonStatus(
-            data.daemonConnected ?? false,
-            data.opencodeReady ?? false,
-          );
-          return;
-        }
-
-        // Event messages relayed from daemon
-        if (data.type === "event" && data.event) {
-          handleEvent(data.event, data.sessionId);
-        }
-      } catch (err) {
-        console.error("[ws] parse error:", err);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("[ws] disconnected");
-      setWsConnected(false);
-      markAllStreamsComplete();
-      // Reconnect after 2s
-      reconnectTimer.current = setTimeout(connect, 2000);
-    };
-
-    ws.onerror = (err) => {
-      console.error("[ws] error:", err);
-    };
-
-    wsRef.current = ws;
-  }, [wsUrl, apiToken, paired, setWsConnected, setDaemonStatus, markAllStreamsComplete]);
-
-  const handleEvent = useCallback(
-    (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }, sessionId?: string) => {
-      // Normalize: OpenCode uses "properties", our relay normalizes to "data"
-      const props = (event.data ?? event.properties ?? {}) as Record<string, unknown>;
-      const sid = (sessionId ?? props.sessionID ?? "") as string;
-
-      switch (event.type) {
-        case "message.created": {
-          const msg = props.message as { id: string; role: string } | undefined;
-          if (msg && sid) {
-            addMessage(sid, {
-              id: msg.id,
-              role: msg.role as "user" | "assistant",
-              parts: [],
-              streaming: msg.role === "assistant",
-              createdAt: new Date().toISOString(),
-            });
-          }
-          break;
-        }
-
-        case "message.part.created":
-        case "message.part.updated": {
-          const part = props.part as {
-            type: string;
-            content?: string;
-            toolName?: string;
-            toolArgs?: string;
-          } | undefined;
-          const messageID = props.messageID as string | undefined;
-
-          if (part && messageID && sid) {
-            if (part.type === "text" && part.content !== undefined) {
-              updateLastTextPart(sid, messageID, part.content);
-            }
-            // For tool invocations and other part types, we could add
-            // more specific handling here in the future
-          }
-          break;
-        }
-
-        case "message.completed": {
-          const messageID = props.messageID as string | undefined;
-          if (messageID && sid) {
-            markMessageComplete(sid, messageID);
-          }
-          break;
-        }
-
-        case "permission.created": {
-          const perm = props.permission as {
-            id: string;
-            description?: string;
-          } | undefined;
-          if (perm && sid) {
-            addPermission({
-              id: perm.id,
-              sessionId: sid,
-              description: perm.description ?? "Permission requested",
-              status: "pending",
-              createdAt: new Date().toISOString(),
-            });
-          }
-          break;
-        }
-
-        case "permission.updated": {
-          const perm = props.permission as {
-            id: string;
-            status?: string;
-          } | undefined;
-          if (perm) {
-            updatePermission(
-              perm.id,
-              (perm.status as "approved" | "denied") ?? "approved",
-            );
-          }
-          break;
-        }
-      }
-    },
-    [addMessage, updateLastTextPart, markMessageComplete, addPermission, updatePermission],
-  );
+  const disposedRef = useRef(false);
 
   useEffect(() => {
+    if (!wsUrl || !paired) return;
+
+    disposedRef.current = false;
+
+    function connect() {
+      if (disposedRef.current) return;
+
+      const url = `${wsUrl}/ws?token=${apiToken}`;
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        if (disposedRef.current) {
+          ws.close();
+          return;
+        }
+        console.log("[ws] connected");
+        useConnectionStore.getState().setWsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        if (disposedRef.current) return;
+        try {
+          const data = JSON.parse(event.data as string);
+
+          // Status messages from orchestrator
+          if (data.type === "status") {
+            useConnectionStore.getState().setDaemonStatus(
+              data.daemonConnected ?? false,
+              data.opencodeReady ?? false,
+            );
+            return;
+          }
+
+          // Event messages relayed from daemon
+          if (data.type === "event" && data.event) {
+            handleWsEvent(
+              useSessionStore.getState(),
+              data.event,
+              data.sessionId,
+            );
+          }
+        } catch (err) {
+          console.error("[ws] parse error:", err);
+        }
+      };
+
+      ws.onclose = () => {
+        if (disposedRef.current) return;
+        console.log("[ws] disconnected");
+        useConnectionStore.getState().setWsConnected(false);
+        useSessionStore.getState().markAllStreamsComplete();
+        // Reconnect after 2s
+        reconnectTimer.current = setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        // React Native WebSocket errors are opaque Event objects with
+        // no useful info. Using console.warn instead of console.error
+        // avoids triggering the red LogBox error overlay on dev builds.
+        if (!disposedRef.current) {
+          console.warn("[ws] connection error");
+        }
+      };
+
+      wsRef.current = ws;
+    }
+
     connect();
+
     return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      disposedRef.current = true;
+
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+      }
+
       if (wsRef.current) {
+        // Detach handlers BEFORE closing to prevent onclose from
+        // scheduling a reconnect or updating state during cleanup.
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
         wsRef.current.close();
         wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, [wsUrl, apiToken, paired]);
 }

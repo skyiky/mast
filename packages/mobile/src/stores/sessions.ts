@@ -177,6 +177,15 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   markAllStreamsComplete: () =>
     set((state) => {
+      // Only create a new state object if there are actually streaming
+      // messages. Returning the same state reference avoids unnecessary
+      // re-renders — this is critical because this function is called on
+      // every WebSocket disconnect (including during reconnect loops).
+      const hasStreaming = Object.values(state.messagesBySession).some(
+        (msgs) => msgs.some((m) => m.streaming),
+      );
+      if (!hasStreaming) return state;
+
       const updated: Record<string, ChatMessage[]> = {};
       for (const [sid, msgs] of Object.entries(state.messagesBySession)) {
         updated[sid] = msgs.map((m) =>

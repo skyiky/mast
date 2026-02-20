@@ -2,7 +2,7 @@
  * Chat screen — renders messages for a specific session.
  */
 
-import React, { useEffect, useCallback, useRef, useState } from "react";
+import React, { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,8 @@ import ConnectionBanner from "../../src/components/ConnectionBanner";
 import MessageBubble from "../../src/components/MessageBubble";
 import PermissionCard from "../../src/components/PermissionCard";
 
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -31,10 +33,12 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
 
   const messages = useSessionStore(
-    (s) => s.messagesBySession[id ?? ""] ?? [],
+    (s) => s.messagesBySession[id ?? ""] ?? EMPTY_MESSAGES,
   );
-  const permissions = useSessionStore((s) =>
-    s.permissions.filter((p) => p.sessionId === id),
+  const allPermissions = useSessionStore((s) => s.permissions);
+  const permissions = useMemo(
+    () => allPermissions.filter((p) => p.sessionId === id),
+    [allPermissions, id],
   );
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const setMessages = useSessionStore((s) => s.setMessages);
