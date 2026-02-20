@@ -31,11 +31,120 @@ describe("handleWsEvent", () => {
     deps = createMockDeps();
   });
 
-  // ---------------------------------------------------------------------------
-  // message.created
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // message.updated — PRIMARY path (real OpenCode events)
+  // ===========================================================================
 
-  describe("message.created", () => {
+  describe("message.updated (OpenCode native)", () => {
+    it("adds a new assistant message with streaming=true", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "m1", role: "assistant", sessionID: "s1" },
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 1);
+      const [sessionId, message] = deps.addMessage.mock.calls[0].arguments;
+      assert.equal(sessionId, "s1");
+      assert.equal(message.id, "m1");
+      assert.equal(message.role, "assistant");
+      assert.equal(message.streaming, true);
+      assert.deepEqual(message.parts, []);
+    });
+
+    it("adds a new user message with streaming=false", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "m2", role: "user", sessionID: "s1" },
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 1);
+      const [, message] = deps.addMessage.mock.calls[0].arguments;
+      assert.equal(message.streaming, false);
+    });
+
+    it("marks message complete when finish is set", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: {
+            id: "m1",
+            role: "assistant",
+            sessionID: "s1",
+            finish: "stop",
+            time: { created: 1234, completed: 5678 },
+          },
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+      assert.equal(deps.markMessageComplete.mock.calls.length, 1);
+      const [sid, mid] = deps.markMessageComplete.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+    });
+
+    it("marks message complete when time.completed is set (no finish field)", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: {
+            id: "m1",
+            role: "assistant",
+            sessionID: "s1",
+            time: { completed: 9999 },
+          },
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+      assert.equal(deps.markMessageComplete.mock.calls.length, 1);
+    });
+
+    it("uses sessionId parameter over info.sessionID", () => {
+      handleWsEvent(
+        deps,
+        {
+          type: "message.updated",
+          data: {
+            info: { id: "m1", role: "assistant", sessionID: "from-info" },
+          },
+        },
+        "from-param",
+      );
+
+      const [sessionId] = deps.addMessage.mock.calls[0].arguments;
+      assert.equal(sessionId, "from-param");
+    });
+
+    it("ignores event without info payload", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: { sessionID: "s1" },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+      assert.equal(deps.markMessageComplete.mock.calls.length, 0);
+    });
+
+    it("ignores event without session ID", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: { info: { id: "m1", role: "assistant" } },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+    });
+  });
+
+  // ===========================================================================
+  // message.created — LEGACY path (backward compat with test fakes)
+  // ===========================================================================
+
+  describe("message.created (legacy)", () => {
     it("adds an assistant message with streaming=true", () => {
       handleWsEvent(
         deps,
@@ -110,18 +219,21 @@ describe("handleWsEvent", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // message.part.created / message.part.updated
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // message.part.updated — handles BOTH OpenCode and legacy data shapes
+  // ===========================================================================
 
   describe("message.part.updated", () => {
-    it("updates text part content", () => {
+    it("updates text part using OpenCode 'text' field", () => {
       handleWsEvent(deps, {
         type: "message.part.updated",
         data: {
-          sessionID: "s1",
-          messageID: "m1",
-          part: { type: "text", content: "Hello world" },
+          part: {
+            type: "text",
+            text: "Hello world",
+            messageID: "m1",
+            sessionID: "s1",
+          },
         },
       });
 
@@ -131,6 +243,42 @@ describe("handleWsEvent", () => {
       assert.equal(sid, "s1");
       assert.equal(mid, "m1");
       assert.equal(text, "Hello world");
+    });
+
+    it("updates text part using legacy 'content' field", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          sessionID: "s1",
+          messageID: "m1",
+          part: { type: "text", content: "Hello legacy" },
+        },
+      });
+
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
+      const [sid, mid, text] =
+        deps.updateLastTextPart.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(text, "Hello legacy");
+    });
+
+    it("prefers 'text' over 'content' when both are present", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "text",
+            text: "from-text",
+            content: "from-content",
+            messageID: "m1",
+            sessionID: "s1",
+          },
+        },
+      });
+
+      const [, , text] = deps.updateLastTextPart.mock.calls[0].arguments;
+      assert.equal(text, "from-text");
     });
 
     it("also handles message.part.created", () => {
@@ -146,7 +294,39 @@ describe("handleWsEvent", () => {
       assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
     });
 
-    it("ignores non-text parts", () => {
+    it("ignores non-text parts (step-start)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "step-start",
+            messageID: "m1",
+            sessionID: "s1",
+            snapshot: "some data",
+          },
+        },
+      });
+
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
+    });
+
+    it("ignores non-text parts (step-finish)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "step-finish",
+            messageID: "m1",
+            sessionID: "s1",
+            reason: "stop",
+          },
+        },
+      });
+
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
+    });
+
+    it("ignores non-text parts (tool-invocation)", () => {
       handleWsEvent(deps, {
         type: "message.part.updated",
         data: {
@@ -182,13 +362,56 @@ describe("handleWsEvent", () => {
 
       assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
     });
+
+    it("gets sessionID from part when not on props (OpenCode shape)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          // No top-level sessionID or messageID
+          part: {
+            type: "text",
+            text: "from part",
+            messageID: "m1",
+            sessionID: "s1",
+          },
+        },
+      });
+
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
+      const [sid, mid, text] =
+        deps.updateLastTextPart.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(text, "from part");
+    });
   });
 
-  // ---------------------------------------------------------------------------
-  // message.completed
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // message.part.delta — currently skipped (full text via part.updated)
+  // ===========================================================================
 
-  describe("message.completed", () => {
+  describe("message.part.delta", () => {
+    it("does not call any deps (intentionally skipped)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1", sessionID: "s1" },
+          field: "text",
+          delta: "OK",
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
+      assert.equal(deps.markMessageComplete.mock.calls.length, 0);
+    });
+  });
+
+  // ===========================================================================
+  // message.completed — legacy event
+  // ===========================================================================
+
+  describe("message.completed (legacy)", () => {
     it("marks message as complete", () => {
       handleWsEvent(deps, {
         type: "message.completed",
@@ -220,9 +443,9 @@ describe("handleWsEvent", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // permission.created
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   describe("permission.created", () => {
     it("adds pending permission with description", () => {
@@ -265,9 +488,9 @@ describe("handleWsEvent", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // permission.updated
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   describe("permission.updated", () => {
     it("updates permission to approved", () => {
@@ -307,9 +530,9 @@ describe("handleWsEvent", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Properties normalization (OpenCode SSE compat)
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   describe("properties normalization", () => {
     it("reads from properties field when data is absent", () => {
@@ -344,11 +567,25 @@ describe("handleWsEvent", () => {
       assert.equal(sid, "from-data");
       assert.equal(msg.id, "m1");
     });
+
+    it("reads message.updated from properties field", () => {
+      handleWsEvent(deps, {
+        type: "message.updated",
+        properties: {
+          info: { id: "m1", role: "assistant", sessionID: "s1" },
+        },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 1);
+      const [sid, msg] = deps.addMessage.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(msg.id, "m1");
+    });
   });
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Unknown / malformed events
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   describe("unknown events", () => {
     it("ignores unknown event types without error", () => {
@@ -361,11 +598,156 @@ describe("handleWsEvent", () => {
       assert.equal(deps.updatePermission.mock.calls.length, 0);
     });
 
+    it("ignores session.created events", () => {
+      handleWsEvent(deps, {
+        type: "session.created",
+        data: { info: { id: "ses_123", slug: "happy-wizard" } },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+    });
+
+    it("ignores session.status events", () => {
+      handleWsEvent(deps, {
+        type: "session.status",
+        data: { sessionID: "s1", status: { type: "busy" } },
+      });
+
+      assert.equal(deps.addMessage.mock.calls.length, 0);
+    });
+
     it("handles event with no data or properties", () => {
       handleWsEvent(deps, { type: "message.created" });
 
       // Should not throw, and should not call any deps
       assert.equal(deps.addMessage.mock.calls.length, 0);
+    });
+  });
+
+  // ===========================================================================
+  // Full OpenCode flow simulation (integration-style)
+  // ===========================================================================
+
+  describe("full OpenCode event flow", () => {
+    it("processes a complete user prompt → assistant response cycle", () => {
+      // 1. User message created
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "msg_user1", role: "user", sessionID: "s1" },
+        },
+      });
+      assert.equal(deps.addMessage.mock.calls.length, 1);
+      assert.equal(deps.addMessage.mock.calls[0].arguments[1].role, "user");
+
+      // 2. User text part
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            id: "prt_1",
+            type: "text",
+            text: "say hello",
+            messageID: "msg_user1",
+            sessionID: "s1",
+          },
+        },
+      });
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
+      assert.equal(
+        deps.updateLastTextPart.mock.calls[0].arguments[2],
+        "say hello",
+      );
+
+      // 3. Assistant message created
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "msg_asst1", role: "assistant", sessionID: "s1" },
+        },
+      });
+      assert.equal(deps.addMessage.mock.calls.length, 2);
+      assert.equal(deps.addMessage.mock.calls[1].arguments[1].role, "assistant");
+      assert.equal(deps.addMessage.mock.calls[1].arguments[1].streaming, true);
+
+      // 4. Step-start (should be ignored)
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "step-start",
+            snapshot: "...",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+          },
+        },
+      });
+      // Still 1 text update (from step 2), step-start is ignored
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
+
+      // 5. Text streaming start (empty text)
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "text",
+            text: "",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+          },
+        },
+      });
+      // Empty string is still a valid value
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 2);
+
+      // 6. Delta (skipped)
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "msg_asst1", sessionID: "s1" },
+          field: "text",
+          delta: "Hello!",
+        },
+      });
+      // No new call — deltas are skipped
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 2);
+
+      // 7. Final text part
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "text",
+            text: "Hello! How can I help you?",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+          },
+        },
+      });
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 3);
+      assert.equal(
+        deps.updateLastTextPart.mock.calls[2].arguments[2],
+        "Hello! How can I help you?",
+      );
+
+      // 8. Assistant message completed
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: {
+            id: "msg_asst1",
+            role: "assistant",
+            sessionID: "s1",
+            finish: "stop",
+            time: { created: 1000, completed: 2000 },
+          },
+        },
+      });
+      assert.equal(deps.markMessageComplete.mock.calls.length, 1);
+      assert.equal(
+        deps.markMessageComplete.mock.calls[0].arguments[1],
+        "msg_asst1",
+      );
     });
   });
 });

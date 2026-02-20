@@ -282,6 +282,33 @@ async function cacheEvent(
   const sessionId = data.sessionID as string | undefined;
 
   switch (event.event.type) {
+    // OpenCode sends message.updated for both new and updated messages.
+    // The message info is at data.info (not data.message).
+    case "message.updated": {
+      const info = data.info as
+        | { id: string; role: string; sessionID?: string; finish?: string; time?: { completed?: number } }
+        | undefined;
+      if (!info) break;
+      const sid = info.sessionID ?? sessionId;
+      if (!sid) break;
+
+      if (info.finish || info.time?.completed) {
+        // Message completed
+        await store.markMessageComplete(info.id);
+      } else {
+        // New message
+        await store.upsertSession({ id: sid });
+        await store.addMessage({
+          id: info.id,
+          sessionId: sid,
+          role: info.role,
+          parts: [],
+        });
+      }
+      break;
+    }
+
+    // Legacy: keep message.created for backward compat with test fakes
     case "message.created": {
       const msg = data.message as
         | { id: string; role: string }
@@ -300,14 +327,21 @@ async function cacheEvent(
 
     case "message.part.created":
     case "message.part.updated": {
-      const messageId = data.messageID as string | undefined;
-      const part = data.part as { type: string; content?: string } | undefined;
+      // OpenCode shape: data.part = { id, messageID, sessionID, type, text }
+      // Legacy shape:   data.messageID + data.part = { type, content }
+      const part = data.part as
+        | { type: string; text?: string; content?: string; messageID?: string }
+        | undefined;
+      const messageId = (part?.messageID ?? data.messageID) as string | undefined;
       if (messageId && part) {
-        await store.updateMessageParts(messageId, [part]);
+        // Normalize: OpenCode uses "text", legacy uses "content"
+        const normalized = { ...part, content: part.text ?? part.content };
+        await store.updateMessageParts(messageId, [normalized]);
       }
       break;
     }
 
+    // Legacy — OpenCode signals completion via message.updated with finish
     case "message.completed": {
       const messageId = data.messageID as string | undefined;
       if (messageId) {

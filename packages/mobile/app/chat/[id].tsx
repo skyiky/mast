@@ -74,18 +74,25 @@ export default function ChatScreen() {
       try {
         const res = await api.messages(id);
         if (res.status === 200 && Array.isArray(res.body)) {
-          const mapped: ChatMessage[] = res.body.map((m: any) => ({
-            id: m.id,
-            role: m.role ?? "assistant",
-            parts: (m.parts ?? []).map((p: any) => ({
-              type: p.type ?? "text",
-              content: p.content ?? "",
-              toolName: p.toolName,
-              toolArgs: p.toolArgs,
-            })),
-            streaming: m.streaming ?? false,
-            createdAt: m.createdAt ?? new Date().toISOString(),
-          }));
+          const mapped: ChatMessage[] = res.body.map((m: any) => {
+            // OpenCode returns { info: { id, role, ... }, parts: [...] }
+            const info = m.info ?? m;
+            return {
+              id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              role: info.role ?? m.role ?? "assistant",
+              parts: (m.parts ?? [])
+                .filter((p: any) => p.type === "text")
+                .map((p: any) => ({
+                  type: "text" as const,
+                  // OpenCode text parts use "text" field, not "content"
+                  content: p.text ?? p.content ?? "",
+                })),
+              streaming: m.streaming ?? !info.time?.completed,
+              createdAt: info.time?.created
+                ? new Date(info.time.created).toISOString()
+                : m.createdAt ?? new Date().toISOString(),
+            };
+          });
           setMessages(id, mapped);
         }
       } catch (err) {
