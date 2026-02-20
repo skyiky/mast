@@ -1,7 +1,9 @@
 {
   "name": "mast",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "overrides": {
     "react": "19.1.0",
     "react-dom": "19.1.0"
