@@ -145,6 +145,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             const newParts = [...m.parts];
             const textIdx = newParts.findIndex((p) => p.type === "text");
             if (textIdx >= 0) {
+              // Guard: don't overwrite non-empty content with empty string.
+              // OpenCode's "streaming start" signal sends text: "" which can
+              // arrive as a duplicate (from SSE reconnection replay) AFTER
+              // real content has been accumulated via deltas.
+              if (text === "" && newParts[textIdx].content) {
+                return m;
+              }
               newParts[textIdx] = { ...newParts[textIdx], content: text };
             } else {
               newParts.push({ type: "text", content: text });

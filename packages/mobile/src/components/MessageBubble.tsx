@@ -51,13 +51,23 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         />
       ))}
 
-      {!hasVisibleContent && message.streaming && (
-        <Text className="text-gray-400 dark:text-gray-500 text-sm italic">
-          Thinking...
-        </Text>
+      {/* Show "Thinking..." until actual content arrives, regardless of
+          streaming flag. OpenCode's finish:stop event can arrive BEFORE
+          text parts, which sets streaming=false prematurely. We keep the
+          indicator visible until real content appears. */}
+      {!hasVisibleContent && (
+        <View className="flex-row items-center">
+          <Text className="text-gray-400 dark:text-gray-500 text-sm italic mr-2">
+            Thinking...
+          </Text>
+          <ActivityIndicator
+            size="small"
+            color="#9ca3af"
+          />
+        </View>
       )}
 
-      {message.streaming && (
+      {message.streaming && hasVisibleContent && (
         <ActivityIndicator
           size="small"
           color={isUser ? "#ffffff" : "#9ca3af"}

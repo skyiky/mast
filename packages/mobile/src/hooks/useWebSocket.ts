@@ -21,7 +21,7 @@
 import { useEffect, useRef } from "react";
 import { useConnectionStore } from "../stores/connection";
 import { useSessionStore } from "../stores/sessions";
-import { handleWsEvent } from "../lib/event-handler";
+import { handleWsEvent, resetEventDedup } from "../lib/event-handler";
 
 export function useWebSocket() {
   // Only subscribe to values that determine connection parameters.
@@ -52,6 +52,9 @@ export function useWebSocket() {
           return;
         }
         console.log("[ws] connected");
+        // Reset event dedup tracking on new connection so stale state
+        // from a previous session doesn't suppress legitimate events.
+        resetEventDedup();
         useConnectionStore.getState().setWsConnected(true);
       };
 

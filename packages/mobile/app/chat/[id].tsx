@@ -75,12 +75,24 @@ export default function ChatScreen() {
     return () => setActiveSessionId(null);
   }, [id, setActiveSessionId]);
 
-  // Load messages from API on mount
+  // Load messages from API on mount.
+  // Uses an abort flag to prevent overwriting streaming state if the user
+  // sends a message before the initial load completes, and checks for
+  // active streaming messages before calling setMessages.
+  const initialLoadAborted = useRef(false);
+
   useEffect(() => {
     if (!id) return;
+    initialLoadAborted.current = false;
+
     (async () => {
       try {
         const res = await api.messages(id);
+
+        // Abort guard: if the user sent a message while we were fetching,
+        // don't overwrite the store with stale historical data.
+        if (initialLoadAborted.current) return;
+
         if (res.status === 200 && Array.isArray(res.body)) {
            const mapped: ChatMessage[] = res.body.map((m: any) => {
             // OpenCode returns { info: { id, role, ... }, parts: [...] }
@@ -108,10 +120,18 @@ export default function ChatScreen() {
                 : m.createdAt ?? new Date().toISOString(),
             };
           });
+
+          // Defense: don't overwrite if there are already streaming messages
+          // in the store (user sent a message while we were loading).
+          const currentMessages = useSessionStore.getState().messagesBySession[id];
+          if (currentMessages?.some((m) => m.streaming)) return;
+
           setMessages(id, mapped);
         }
       } catch (err) {
-        console.error("[chat] Failed to load messages:", err);
+        if (!initialLoadAborted.current) {
+          console.error("[chat] Failed to load messages:", err);
+        }
       }
     })();
   }, [id]);
@@ -135,6 +155,9 @@ export default function ChatScreen() {
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || !id || sending) return;
+
+    // Abort any pending initial load so it doesn't overwrite streaming state
+    initialLoadAborted.current = true;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 

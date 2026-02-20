@@ -22,6 +22,30 @@
 
 import type { ChatMessage, PermissionRequest } from "../stores/sessions";
 
+// ---------------------------------------------------------------------------
+// Deduplication state for replayed SSE events.
+//
+// When the daemon reconnects to OpenCode's SSE endpoint, OpenCode replays
+// buffered events. This causes duplicate events arriving at the phone. We
+// track "finalized" part IDs (parts that have received their final snapshot
+// with time.end) and skip any subsequent updates for them.
+//
+// For message.part.delta events (which don't carry a unique delta ID), we
+// track finalized message IDs — once a text part for a message has been
+// finalized, we skip further deltas for that message.
+// ---------------------------------------------------------------------------
+const finalizedPartIds = new Set<string>();
+const finalizedTextMessageIds = new Set<string>();
+
+/**
+ * Reset dedup tracking. Call this when establishing a new SSE/WebSocket
+ * session to avoid stale dedup state from a previous connection.
+ */
+export function resetEventDedup(): void {
+  finalizedPartIds.clear();
+  finalizedTextMessageIds.clear();
+}
+
 /** Dependencies injected from Zustand stores (or mocks in tests). */
 export interface EventHandlerDeps {
   addMessage: (sessionId: string, message: ChatMessage) => void;
@@ -141,6 +165,7 @@ export function handleWsEvent(
     case "message.part.updated": {
       const part = props.part as
         | {
+            id?: string;
             type: string;
             text?: string;
             content?: string;
@@ -148,6 +173,7 @@ export function handleWsEvent(
             sessionID?: string;
             toolName?: string;
             toolArgs?: string;
+            time?: { start?: number; end?: number };
           }
         | undefined;
       // messageID can be on the part itself (OpenCode) or on props (legacy)
@@ -156,6 +182,21 @@ export function handleWsEvent(
       const sid = sessionId ?? (part?.sessionID as string) ?? (props.sessionID as string) ?? "";
 
       if (part && messageID && sid) {
+        const partId = part.id;
+
+        // Dedup: skip events for already-finalized parts (replayed from
+        // SSE reconnection). A finalized part has received its final
+        // snapshot (time.end set), so any subsequent update is a replay.
+        if (partId && finalizedPartIds.has(partId)) break;
+
+        // Mark part as finalized when it has a completion time
+        if (partId && part.time?.end) {
+          finalizedPartIds.add(partId);
+          if (part.type === "text" && messageID) {
+            finalizedTextMessageIds.add(messageID);
+          }
+        }
+
         if (part.type === "text") {
           // OpenCode uses "text", legacy uses "content"
           const textContent = part.text ?? part.content;
@@ -184,7 +225,7 @@ export function handleWsEvent(
     // -----------------------------------------------------------------
     case "message.part.delta": {
       const part = props.part as
-        | { messageID?: string; sessionID?: string }
+        | { messageID?: string; sessionID?: string; id?: string }
         | undefined;
       const field = props.field as string | undefined;
       const delta = props.delta as string | undefined;
@@ -193,6 +234,11 @@ export function handleWsEvent(
       const sid = sessionId ?? (part?.sessionID as string) ?? (props.sessionID as string) ?? "";
 
       if (field === "text" && delta && messageID && sid) {
+        // Dedup: if the text part for this message has already been
+        // finalized (received final snapshot with time.end), skip
+        // replayed deltas that would double the text content.
+        if (finalizedTextMessageIds.has(messageID)) break;
+
         deps.appendTextDelta(sid, messageID, delta);
       }
       break;
