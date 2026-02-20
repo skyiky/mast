@@ -77,7 +77,7 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
   if (!content) return null;
 
   return (
-    <View className="flex-1">
+    <View>
       <EnrichedMarkdownText markdown={content} markdownStyle={style} />
     </View>
   );

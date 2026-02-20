@@ -82,20 +82,27 @@ export default function ChatScreen() {
       try {
         const res = await api.messages(id);
         if (res.status === 200 && Array.isArray(res.body)) {
-          const mapped: ChatMessage[] = res.body.map((m: any) => {
+           const mapped: ChatMessage[] = res.body.map((m: any) => {
             // OpenCode returns { info: { id, role, ... }, parts: [...] }
             const info = m.info ?? m;
             return {
               id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               role: info.role ?? m.role ?? "assistant",
               parts: (m.parts ?? [])
-                .filter((p: any) => p.type === "text")
+                .filter((p: any) => {
+                  // Keep text, tool-invocation, tool-result, reasoning, file
+                  // Skip step-start, step-finish, and other internal part types
+                  const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
+                  return kept.includes(p.type);
+                })
                 .map((p: any) => ({
-                  type: "text" as const,
+                  type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
                   // OpenCode text parts use "text" field, not "content"
                   content: p.text ?? p.content ?? "",
+                  toolName: p.toolName ?? p.name,
+                  toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
                 })),
-              streaming: m.streaming ?? !info.time?.completed,
+              streaming: false, // Historical messages are never streaming
               createdAt: info.time?.created
                 ? new Date(info.time.created).toISOString()
                 : m.createdAt ?? new Date().toISOString(),
@@ -109,14 +116,21 @@ export default function ChatScreen() {
     })();
   }, [id]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when new messages arrive or content streams in.
+  // Track total content length so delta streaming also triggers scroll.
+  const lastMsg = messages[messages.length - 1];
+  const lastContentLen = lastMsg?.parts.reduce(
+    (sum, p) => sum + (p.content?.length ?? 0),
+    0,
+  ) ?? 0;
+
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages.length, messages[messages.length - 1]?.parts.length]);
+  }, [messages.length, lastContentLen]);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();

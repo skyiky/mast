@@ -61,6 +61,7 @@ interface SessionState {
   updateMessageParts: (sessionId: string, messageId: string, parts: MessagePart[]) => void;
   updateLastTextPart: (sessionId: string, messageId: string, text: string) => void;
   appendTextDelta: (sessionId: string, messageId: string, delta: string) => void;
+  addPartToMessage: (sessionId: string, messageId: string, part: MessagePart) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   markAllStreamsComplete: () => void;
 
@@ -198,6 +199,21 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             lastMessagePreview: preview.slice(0, 80),
           };
         }),
+      };
+    }),
+
+  addPartToMessage: (sessionId, messageId, part) =>
+    set((state) => {
+      const messages = state.messagesBySession[sessionId];
+      if (!messages) return state;
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: messages.map((m) => {
+            if (m.id !== messageId) return m;
+            return { ...m, parts: [...m.parts, part] };
+          }),
+        },
       };
     }),
 

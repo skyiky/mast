@@ -19,6 +19,7 @@ function createMockDeps() {
     addMessage: mock.fn<EventHandlerDeps["addMessage"]>(),
     updateLastTextPart: mock.fn<EventHandlerDeps["updateLastTextPart"]>(),
     appendTextDelta: mock.fn<EventHandlerDeps["appendTextDelta"]>(),
+    addPartToMessage: mock.fn<EventHandlerDeps["addPartToMessage"]>(),
     markMessageComplete: mock.fn<EventHandlerDeps["markMessageComplete"]>(),
     addPermission: mock.fn<EventHandlerDeps["addPermission"]>(),
     updatePermission: mock.fn<EventHandlerDeps["updatePermission"]>(),
@@ -54,7 +55,7 @@ describe("handleWsEvent", () => {
       assert.deepEqual(message.parts, []);
     });
 
-    it("adds a new user message with streaming=false", () => {
+    it("skips user message echoes (added optimistically by handleSend)", () => {
       handleWsEvent(deps, {
         type: "message.updated",
         data: {
@@ -62,9 +63,9 @@ describe("handleWsEvent", () => {
         },
       });
 
-      assert.equal(deps.addMessage.mock.calls.length, 1);
-      const [, message] = deps.addMessage.mock.calls[0].arguments;
-      assert.equal(message.streaming, false);
+      // User messages from SSE are skipped — they were already added
+      // optimistically by the chat screen's handleSend function.
+      assert.equal(deps.addMessage.mock.calls.length, 0);
     });
 
     it("marks message complete when finish is set", () => {
@@ -327,17 +328,24 @@ describe("handleWsEvent", () => {
       assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
     });
 
-    it("ignores non-text parts (tool-invocation)", () => {
+    it("processes tool-invocation parts via addPartToMessage", () => {
       handleWsEvent(deps, {
         type: "message.part.updated",
         data: {
           sessionID: "s1",
           messageID: "m1",
-          part: { type: "tool-invocation", toolName: "bash" },
+          part: { type: "tool-invocation", toolName: "bash", text: "ls -la" },
         },
       });
 
       assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
+      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
+      const [sid, mid, part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(part.type, "tool-invocation");
+      assert.equal(part.toolName, "bash");
+      assert.equal(part.content, "ls -la");
     });
 
     it("ignores without messageID", () => {
@@ -741,17 +749,18 @@ describe("handleWsEvent", () => {
 
   describe("full OpenCode event flow", () => {
     it("processes a complete user prompt → assistant response cycle", () => {
-      // 1. User message created
+      // 1. User message created (echoed from OpenCode — should be SKIPPED
+      //    because user messages are added optimistically by handleSend)
       handleWsEvent(deps, {
         type: "message.updated",
         data: {
           info: { id: "msg_user1", role: "user", sessionID: "s1" },
         },
       });
-      assert.equal(deps.addMessage.mock.calls.length, 1);
-      assert.equal(deps.addMessage.mock.calls[0].arguments[1].role, "user");
+      assert.equal(deps.addMessage.mock.calls.length, 0); // Skipped
 
-      // 2. User text part
+      // 2. User text part (still updates text for the server-side message,
+      //    but the message doesn't exist locally — this is a no-op in the store)
       handleWsEvent(deps, {
         type: "message.part.updated",
         data: {
@@ -765,10 +774,6 @@ describe("handleWsEvent", () => {
         },
       });
       assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
-      assert.equal(
-        deps.updateLastTextPart.mock.calls[0].arguments[2],
-        "say hello",
-      );
 
       // 3. Assistant message created
       handleWsEvent(deps, {
@@ -777,9 +782,9 @@ describe("handleWsEvent", () => {
           info: { id: "msg_asst1", role: "assistant", sessionID: "s1" },
         },
       });
-      assert.equal(deps.addMessage.mock.calls.length, 2);
-      assert.equal(deps.addMessage.mock.calls[1].arguments[1].role, "assistant");
-      assert.equal(deps.addMessage.mock.calls[1].arguments[1].streaming, true);
+      assert.equal(deps.addMessage.mock.calls.length, 1); // Only assistant
+      assert.equal(deps.addMessage.mock.calls[0].arguments[1].role, "assistant");
+      assert.equal(deps.addMessage.mock.calls[0].arguments[1].streaming, true);
 
       // 4. Step-start (should be ignored)
       handleWsEvent(deps, {

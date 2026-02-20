@@ -35,6 +35,11 @@ export interface EventHandlerDeps {
     messageId: string,
     delta: string,
   ) => void;
+  addPartToMessage: (
+    sessionId: string,
+    messageId: string,
+    part: import("../stores/sessions").MessagePart,
+  ) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   addPermission: (perm: PermissionRequest) => void;
   updatePermission: (permId: string, status: "approved" | "denied") => void;
@@ -80,13 +85,19 @@ export function handleWsEvent(
       // If the message has a finish marker, mark it complete
       if (info.finish || info.time?.completed) {
         deps.markMessageComplete(sid, info.id);
+      } else if (info.role === "user") {
+        // Skip user messages from SSE — they were already added
+        // optimistically by handleSend. Adding them again would create
+        // duplicates since the local message has a client-side ID
+        // (user-{timestamp}) while the server echo has a real ID (msg_...).
+        break;
       } else {
-        // New message (no finish yet) — add it
+        // New assistant message (no finish yet) — add it
         deps.addMessage(sid, {
           id: info.id,
           role: info.role as "user" | "assistant",
           parts: [],
-          streaming: info.role === "assistant",
+          streaming: true,
           createdAt: new Date().toISOString(),
         });
       }
@@ -145,16 +156,22 @@ export function handleWsEvent(
       const sid = sessionId ?? (part?.sessionID as string) ?? (props.sessionID as string) ?? "";
 
       if (part && messageID && sid) {
-        // Only process text parts — skip step-start, step-finish, etc.
         if (part.type === "text") {
           // OpenCode uses "text", legacy uses "content"
           const textContent = part.text ?? part.content;
           if (textContent !== undefined) {
             deps.updateLastTextPart(sid, messageID, textContent);
           }
+        } else if (part.type === "tool-invocation") {
+          // Tool invocation — add as a new part to the message
+          deps.addPartToMessage(sid, messageID, {
+            type: "tool-invocation",
+            content: part.text ?? part.content ?? "",
+            toolName: part.toolName ?? (part as any).name,
+            toolArgs: part.toolArgs ?? ((part as any).args ? JSON.stringify((part as any).args) : undefined),
+          });
         }
-        // Tool invocations and other part types can be handled here
-        // in the future.
+        // Other part types (step-start, step-finish, etc.) are ignored.
       }
       break;
     }
