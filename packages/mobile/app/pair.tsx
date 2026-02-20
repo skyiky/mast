@@ -1,6 +1,6 @@
 /**
- * Pairing screen — connect phone to daemon.
- * Supports QR code scanning and manual code entry.
+ * Pairing screen — terminal style.
+ * QR code scanning and manual code entry.
  */
 
 import React, { useState, useCallback } from "react";
@@ -19,6 +19,8 @@ import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { useConnectionStore } from "../src/stores/connection";
+import { useTheme } from "../src/lib/ThemeContext";
+import { fonts } from "../src/lib/themes";
 import CodeInput from "../src/components/CodeInput";
 import * as api from "../src/lib/api";
 
@@ -26,6 +28,7 @@ type Mode = "qr" | "manual";
 
 export default function PairScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const setServerUrl = useConnectionStore((s) => s.setServerUrl);
   const setPaired = useConnectionStore((s) => s.setPaired);
   const serverUrl = useConnectionStore((s) => s.serverUrl);
@@ -50,11 +53,11 @@ export default function PairScreen() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           await doPairing(parsed.url, parsed.code);
         } else {
-          setError("Invalid QR code format");
+          setError("invalid qr format");
           setQrScanned(false);
         }
       } catch {
-        setError("Invalid QR code");
+        setError("invalid qr code");
         setQrScanned(false);
       }
     },
@@ -65,7 +68,7 @@ export default function PairScreen() {
     async (code: string) => {
       const url = manualUrl.trim();
       if (!url) {
-        setError("Enter server URL first");
+        setError("enter server url first");
         return;
       }
       await doPairing(url, code);
@@ -79,7 +82,6 @@ export default function PairScreen() {
     setCodeError(false);
 
     try {
-      // Set the server URL first
       setServerUrl(url);
 
       const config = { serverUrl: url, apiToken };
@@ -91,13 +93,13 @@ export default function PairScreen() {
         router.replace("/");
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError(res.body?.error ?? "Pairing failed");
+        setError(res.body?.error ?? "pairing failed");
         setCodeError(true);
         setQrScanned(false);
       }
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError("Connection failed. Check the server URL.");
+      setError("connection failed — check server url");
       setCodeError(true);
       setQrScanned(false);
     } finally {
@@ -108,75 +110,138 @@ export default function PairScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1 bg-gray-50 dark:bg-gray-950"
+      style={{ flex: 1, backgroundColor: colors.bg }}
     >
       <ScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1 px-6 pt-8 pb-6">
+        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 }}>
           {/* Title */}
-          <Text className="text-3xl font-bold text-gray-900 dark:text-gray-100 text-center mb-2">
-            Pair Your Device
+          <Text
+            style={{
+              fontFamily: fonts.bold,
+              fontSize: 22,
+              color: colors.bright,
+              textAlign: "center",
+              marginBottom: 6,
+            }}
+          >
+            pair device
           </Text>
-          <Text className="text-base text-gray-500 dark:text-gray-400 text-center mb-8">
-            Scan the QR code shown in your daemon terminal, or enter the code manually.
+          <Text
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 13,
+              color: colors.muted,
+              textAlign: "center",
+              marginBottom: 28,
+            }}
+          >
+            scan the qr code from your daemon, or enter the code manually.
           </Text>
 
           {/* Mode toggle */}
-          <View className="flex-row mb-6 bg-gray-200 dark:bg-gray-800 rounded-xl p-1">
+          <View
+            style={{
+              flexDirection: "row",
+              marginBottom: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
             <TouchableOpacity
               onPress={() => setMode("qr")}
-              className={`flex-1 py-2.5 rounded-lg items-center ${
-                mode === "qr" ? "bg-white dark:bg-gray-700" : ""
-              }`}
+              activeOpacity={0.6}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: "center",
+                backgroundColor: mode === "qr" ? colors.surface : "transparent",
+                borderRightWidth: 1,
+                borderRightColor: colors.border,
+              }}
             >
               <Text
-                className={`font-medium text-sm ${
-                  mode === "qr"
-                    ? "text-gray-900 dark:text-gray-100"
-                    : "text-gray-500 dark:text-gray-400"
-                }`}
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 12,
+                  color: mode === "qr" ? colors.accent : colors.muted,
+                }}
               >
-                Scan QR
+                [scan qr]
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setMode("manual")}
-              className={`flex-1 py-2.5 rounded-lg items-center ${
-                mode === "manual" ? "bg-white dark:bg-gray-700" : ""
-              }`}
+              activeOpacity={0.6}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: "center",
+                backgroundColor: mode === "manual" ? colors.surface : "transparent",
+              }}
             >
               <Text
-                className={`font-medium text-sm ${
-                  mode === "manual"
-                    ? "text-gray-900 dark:text-gray-100"
-                    : "text-gray-500 dark:text-gray-400"
-                }`}
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 12,
+                  color: mode === "manual" ? colors.accent : colors.muted,
+                }}
               >
-                Enter Code
+                [enter code]
               </Text>
             </TouchableOpacity>
           </View>
 
           {mode === "qr" ? (
-            <View className="items-center">
+            <View style={{ alignItems: "center" }}>
               {!permission?.granted ? (
-                <View className="items-center py-8">
-                  <Text className="text-gray-600 dark:text-gray-400 mb-4 text-center">
-                    Camera access is needed to scan the QR code.
+                <View style={{ alignItems: "center", paddingVertical: 32 }}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.regular,
+                      fontSize: 13,
+                      color: colors.muted,
+                      marginBottom: 16,
+                      textAlign: "center",
+                    }}
+                  >
+                    camera access needed to scan qr code.
                   </Text>
                   <TouchableOpacity
                     onPress={requestPermission}
-                    className="bg-mast-600 px-6 py-3 rounded-xl"
+                    activeOpacity={0.6}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.success,
+                      paddingHorizontal: 20,
+                      paddingVertical: 10,
+                    }}
                   >
-                    <Text className="text-white font-semibold">
-                      Grant Camera Access
+                    <Text
+                      style={{
+                        fontFamily: fonts.medium,
+                        fontSize: 13,
+                        color: colors.success,
+                      }}
+                    >
+                      [grant access]
                     </Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View className="w-full aspect-square rounded-2xl overflow-hidden bg-black mb-4">
+                <View
+                  style={{
+                    width: "100%",
+                    aspectRatio: 1,
+                    overflow: "hidden",
+                    backgroundColor: "#000",
+                    marginBottom: 16,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
                   <CameraView
                     style={{ flex: 1 }}
                     barcodeScannerSettings={{
@@ -189,24 +254,52 @@ export default function PairScreen() {
             </View>
           ) : (
             <View>
-              {/* Server URL input */}
-              <Text className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Server URL
+              {/* Server URL */}
+              <Text
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 11,
+                  color: colors.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 6,
+                }}
+              >
+                server url
               </Text>
               <TextInput
-                className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 text-base text-gray-900 dark:text-gray-100 mb-6"
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontFamily: fonts.regular,
+                  fontSize: 14,
+                  color: colors.bright,
+                  marginBottom: 20,
+                }}
                 value={manualUrl}
                 onChangeText={setManualUrl}
-                placeholder="https://your-server.railway.app"
-                placeholderTextColor="#9ca3af"
+                placeholder="https://your-server.azurecontainerapps.io"
+                placeholderTextColor={colors.dim}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
               />
 
               {/* Pairing code */}
-              <Text className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                Pairing Code
+              <Text
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 11,
+                  color: colors.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 10,
+                }}
+              >
+                pairing code
               </Text>
               <CodeInput onComplete={handleManualCode} error={codeError} />
             </View>
@@ -214,18 +307,41 @@ export default function PairScreen() {
 
           {/* Loading */}
           {loading && (
-            <View className="items-center mt-6">
-              <ActivityIndicator size="large" color="#5c7cfa" />
-              <Text className="text-gray-500 dark:text-gray-400 mt-2 text-sm">
-                Pairing...
+            <View style={{ alignItems: "center", marginTop: 24 }}>
+              <ActivityIndicator size="large" color={colors.success} />
+              <Text
+                style={{
+                  fontFamily: fonts.regular,
+                  fontSize: 12,
+                  color: colors.muted,
+                  marginTop: 8,
+                }}
+              >
+                pairing...
               </Text>
             </View>
           )}
 
           {/* Error */}
           {error && (
-            <View className="mt-4 bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3">
-              <Text className="text-red-600 dark:text-red-400 text-sm text-center">
+            <View
+              style={{
+                marginTop: 16,
+                backgroundColor: colors.dangerDim,
+                borderWidth: 1,
+                borderColor: colors.danger,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.regular,
+                  fontSize: 12,
+                  color: colors.danger,
+                  textAlign: "center",
+                }}
+              >
                 {error}
               </Text>
             </View>

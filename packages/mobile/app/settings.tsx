@@ -1,37 +1,36 @@
 /**
- * Settings screen — connection status, preferences, re-pair option.
+ * Settings screen — terminal style. Connection status, preferences, re-pair.
  */
 
 import React from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useConnectionStore } from "../src/stores/connection";
-import { useSettingsStore, type Verbosity, type ColorScheme } from "../src/stores/settings";
+import { useSettingsStore, type Verbosity } from "../src/stores/settings";
+import { useTheme } from "../src/lib/ThemeContext";
+import { fonts } from "../src/lib/themes";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
 
-  // Connection state
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const wsConnected = useConnectionStore((s) => s.wsConnected);
   const daemonConnected = useConnectionStore((s) => s.daemonConnected);
   const opencodeReady = useConnectionStore((s) => s.opencodeReady);
   const reset = useConnectionStore((s) => s.reset);
 
-  // Settings
   const verbosity = useSettingsStore((s) => s.verbosity);
-  const colorScheme = useSettingsStore((s) => s.colorScheme);
   const setVerbosity = useSettingsStore((s) => s.setVerbosity);
-  const setColorScheme = useSettingsStore((s) => s.setColorScheme);
 
   const handleRepair = () => {
     Alert.alert(
-      "Re-pair Device",
-      "This will disconnect and require you to pair again. Continue?",
+      "re-pair device",
+      "this will disconnect and require re-pairing. continue?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "cancel", style: "cancel" },
         {
-          text: "Re-pair",
+          text: "re-pair",
           style: "destructive",
           onPress: () => {
             reset();
@@ -43,76 +42,121 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-gray-50 dark:bg-gray-950">
+    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Connection Status */}
-      <SectionHeader title="Connection" />
-      <View className="bg-white dark:bg-gray-900 mx-4 rounded-xl overflow-hidden mb-6">
+      <SectionHeader title="// connection" colors={colors} />
+      <View
+        style={{
+          marginHorizontal: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          marginBottom: 20,
+        }}
+      >
         <StatusRow
-          label="Server"
-          value={serverUrl || "Not configured"}
+          label="server"
+          value={serverUrl || "not configured"}
           status={wsConnected ? "green" : "red"}
+          colors={colors}
         />
-        <Divider />
+        <Divider colors={colors} />
         <StatusRow
-          label="Daemon"
-          value={daemonConnected ? "Connected" : "Offline"}
+          label="daemon"
+          value={daemonConnected ? "connected" : "offline"}
           status={daemonConnected ? "green" : "red"}
+          colors={colors}
         />
-        <Divider />
+        <Divider colors={colors} />
         <StatusRow
-          label="OpenCode"
-          value={opencodeReady ? "Ready" : "Not ready"}
+          label="opencode"
+          value={opencodeReady ? "ready" : "not ready"}
           status={opencodeReady ? "green" : daemonConnected ? "yellow" : "red"}
+          colors={colors}
         />
       </View>
 
-      {/* Verbosity */}
-      <SectionHeader title="Display" />
-      <View className="bg-white dark:bg-gray-900 mx-4 rounded-xl overflow-hidden mb-6">
+      {/* Display */}
+      <SectionHeader title="// display" colors={colors} />
+      <View
+        style={{
+          marginHorizontal: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          marginBottom: 20,
+        }}
+      >
         <OptionRow
-          label="Verbosity"
+          label="verbosity"
           options={[
-            { value: "standard" as Verbosity, label: "Standard" },
-            { value: "full" as Verbosity, label: "Full" },
+            { value: "standard" as Verbosity, label: "std" },
+            { value: "full" as Verbosity, label: "full" },
           ]}
           selected={verbosity}
           onSelect={(v) => setVerbosity(v as Verbosity)}
-        />
-        <Divider />
-        <OptionRow
-          label="Theme"
-          options={[
-            { value: "system" as ColorScheme, label: "System" },
-            { value: "light" as ColorScheme, label: "Light" },
-            { value: "dark" as ColorScheme, label: "Dark" },
-          ]}
-          selected={colorScheme}
-          onSelect={(v) => setColorScheme(v as ColorScheme)}
+          colors={colors}
         />
       </View>
 
-      {/* Actions */}
-      <SectionHeader title="Device" />
-      <View className="bg-white dark:bg-gray-900 mx-4 rounded-xl overflow-hidden mb-6">
+      {/* Device */}
+      <SectionHeader title="// device" colors={colors} />
+      <View
+        style={{
+          marginHorizontal: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          marginBottom: 20,
+        }}
+      >
         <TouchableOpacity
           onPress={handleRepair}
-          className="px-4 py-3.5 active:bg-gray-50 dark:active:bg-gray-800"
+          activeOpacity={0.6}
+          style={{ paddingHorizontal: 14, paddingVertical: 12 }}
         >
-          <Text className="text-red-600 dark:text-red-400 text-base">
-            Re-pair Device
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 13,
+              color: colors.danger,
+            }}
+          >
+            [re-pair device]
           </Text>
         </TouchableOpacity>
       </View>
 
       {/* About */}
-      <SectionHeader title="About" />
-      <View className="bg-white dark:bg-gray-900 mx-4 rounded-xl overflow-hidden mb-10">
-        <View className="px-4 py-3.5">
-          <Text className="text-gray-900 dark:text-gray-100 text-base">
-            Mast
+      <SectionHeader title="// about" colors={colors} />
+      <View
+        style={{
+          marginHorizontal: 14,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          marginBottom: 40,
+        }}
+      >
+        <View style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
+          <Text
+            style={{
+              fontFamily: fonts.bold,
+              fontSize: 14,
+              color: colors.bright,
+            }}
+          >
+            mast
           </Text>
-          <Text className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-            v0.0.1 — Phase 5 Dogfood
+          <Text
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 11,
+              color: colors.dim,
+              marginTop: 2,
+            }}
+          >
+            v0.0.1 — phase 5 dogfood
           </Text>
         </View>
       </View>
@@ -120,17 +164,27 @@ export default function SettingsScreen() {
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, colors }: { title: string; colors: any }) {
   return (
-    <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-8 py-2 mt-2">
+    <Text
+      style={{
+        fontFamily: fonts.medium,
+        fontSize: 11,
+        color: colors.muted,
+        letterSpacing: 1,
+        paddingHorizontal: 18,
+        paddingVertical: 8,
+        marginTop: 4,
+      }}
+    >
       {title}
     </Text>
   );
 }
 
-function Divider() {
+function Divider({ colors }: { colors: any }) {
   return (
-    <View className="h-px bg-gray-100 dark:bg-gray-800 ml-4" />
+    <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 14 }} />
   );
 }
 
@@ -138,25 +192,47 @@ function StatusRow({
   label,
   value,
   status,
+  colors,
 }: {
   label: string;
   value: string;
   status: "green" | "yellow" | "red";
+  colors: any;
 }) {
   const dotColor = {
-    green: "bg-green-500",
-    yellow: "bg-amber-500",
-    red: "bg-red-500",
+    green: colors.success,
+    yellow: colors.warning,
+    red: colors.danger,
   }[status];
 
   return (
-    <View className="flex-row items-center px-4 py-3.5">
-      <View className={`w-2.5 h-2.5 rounded-full ${dotColor} mr-3`} />
-      <Text className="text-gray-900 dark:text-gray-100 text-base flex-1">
+    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12 }}>
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: dotColor,
+          marginRight: 10,
+        }}
+      />
+      <Text
+        style={{
+          fontFamily: fonts.medium,
+          fontSize: 13,
+          color: colors.text,
+          flex: 1,
+        }}
+      >
         {label}
       </Text>
       <Text
-        className="text-gray-500 dark:text-gray-400 text-sm max-w-[200px]"
+        style={{
+          fontFamily: fonts.regular,
+          fontSize: 12,
+          color: colors.muted,
+          maxWidth: 200,
+        }}
         numberOfLines={1}
       >
         {value}
@@ -170,34 +246,47 @@ function OptionRow<T extends string>({
   options,
   selected,
   onSelect,
+  colors,
 }: {
   label: string;
   options: { value: T; label: string }[];
   selected: T;
   onSelect: (value: T) => void;
+  colors: any;
 }) {
   return (
-    <View className="px-4 py-3">
-      <Text className="text-gray-900 dark:text-gray-100 text-base mb-2">
+    <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+      <Text
+        style={{
+          fontFamily: fonts.medium,
+          fontSize: 13,
+          color: colors.text,
+          marginBottom: 8,
+        }}
+      >
         {label}
       </Text>
-      <View className="flex-row bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+      <View style={{ flexDirection: "row", gap: 8 }}>
         {options.map((opt) => (
           <TouchableOpacity
             key={opt.value}
             onPress={() => onSelect(opt.value)}
-            className={`flex-1 py-1.5 rounded-md items-center ${
-              selected === opt.value
-                ? "bg-white dark:bg-gray-700"
-                : ""
-            }`}
+            activeOpacity={0.6}
+            style={{
+              flex: 1,
+              paddingVertical: 6,
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: selected === opt.value ? colors.accent : colors.border,
+              backgroundColor: selected === opt.value ? colors.accentDim : "transparent",
+            }}
           >
             <Text
-              className={`text-sm font-medium ${
-                selected === opt.value
-                  ? "text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400"
-              }`}
+              style={{
+                fontFamily: fonts.medium,
+                fontSize: 12,
+                color: selected === opt.value ? colors.accent : colors.muted,
+              }}
             >
               {opt.label}
             </Text>

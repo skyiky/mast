@@ -1,97 +1,101 @@
 /**
  * MarkdownContent — Renders agent response text as markdown.
- * Uses @ronradtke/react-native-markdown-display for native rendering.
+ * Terminal dark theme only. JetBrains Mono. Theme-aware colors.
  */
 
 import React, { useMemo } from "react";
-import { StyleSheet, useColorScheme } from "react-native";
+import { StyleSheet } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 
 interface MarkdownContentProps {
   content: string;
 }
 
-const lightStyles = StyleSheet.create({
-  body: { color: "#1a1a1a", fontSize: 15, lineHeight: 22 },
-  heading1: { color: "#111827", fontSize: 22, fontWeight: "700" as const, marginTop: 8, marginBottom: 4 },
-  heading2: { color: "#111827", fontSize: 19, fontWeight: "700" as const, marginTop: 6, marginBottom: 4 },
-  heading3: { color: "#111827", fontSize: 16, fontWeight: "600" as const, marginTop: 4, marginBottom: 2 },
-  paragraph: { marginTop: 0, marginBottom: 6 },
-  link: { color: "#4c6ef5" },
-  fence: {
-    backgroundColor: "#f3f4f6",
-    color: "#1f2937",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-    fontSize: 13,
-    fontFamily: "monospace",
-  },
-  code_inline: {
-    backgroundColor: "#f3f4f6",
-    color: "#1f2937",
-    borderColor: "#e5e7eb",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    fontSize: 13,
-    fontFamily: "monospace",
-  },
-  blockquote: {
-    borderLeftColor: "#d1d5db",
-    borderLeftWidth: 3,
-    paddingLeft: 12,
-    marginLeft: 0,
-    backgroundColor: "transparent",
-  },
-  bullet_list_icon: { color: "#1a1a1a" },
-  ordered_list_icon: { color: "#1a1a1a" },
-});
-
-const darkStyles = StyleSheet.create({
-  body: { color: "#f3f4f6", fontSize: 15, lineHeight: 22 },
-  heading1: { color: "#f9fafb", fontSize: 22, fontWeight: "700" as const, marginTop: 8, marginBottom: 4 },
-  heading2: { color: "#f9fafb", fontSize: 19, fontWeight: "700" as const, marginTop: 6, marginBottom: 4 },
-  heading3: { color: "#f9fafb", fontSize: 16, fontWeight: "600" as const, marginTop: 4, marginBottom: 2 },
-  paragraph: { marginTop: 0, marginBottom: 6 },
-  link: { color: "#748ffc" },
-  fence: {
-    backgroundColor: "#1f2937",
-    color: "#e5e7eb",
-    borderColor: "#374151",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-    fontSize: 13,
-    fontFamily: "monospace",
-  },
-  code_inline: {
-    backgroundColor: "#1f2937",
-    color: "#e5e7eb",
-    borderColor: "#374151",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    fontSize: 13,
-    fontFamily: "monospace",
-  },
-  blockquote: {
-    borderLeftColor: "#4b5563",
-    borderLeftWidth: 3,
-    paddingLeft: 12,
-    marginLeft: 0,
-    backgroundColor: "transparent",
-  },
-  bullet_list_icon: { color: "#f3f4f6" },
-  ordered_list_icon: { color: "#f3f4f6" },
-});
-
 export default function MarkdownContent({ content }: MarkdownContentProps) {
-  const colorScheme = useColorScheme();
+  const { colors } = useTheme();
+
   const style = useMemo(
-    () => (colorScheme === "dark" ? darkStyles : lightStyles),
-    [colorScheme],
+    () =>
+      StyleSheet.create({
+        body: {
+          color: colors.text,
+          fontSize: 14,
+          lineHeight: 21,
+          fontFamily: fonts.regular,
+        },
+        heading1: {
+          color: colors.bright,
+          fontSize: 20,
+          fontFamily: fonts.bold,
+          marginTop: 8,
+          marginBottom: 4,
+        },
+        heading2: {
+          color: colors.bright,
+          fontSize: 17,
+          fontFamily: fonts.bold,
+          marginTop: 6,
+          marginBottom: 4,
+        },
+        heading3: {
+          color: colors.bright,
+          fontSize: 15,
+          fontFamily: fonts.semibold,
+          marginTop: 4,
+          marginBottom: 2,
+        },
+        paragraph: { marginTop: 0, marginBottom: 6 },
+        link: { color: colors.accent },
+        fence: {
+          backgroundColor: colors.surface,
+          color: colors.text,
+          borderColor: colors.border,
+          borderRadius: 4,
+          borderWidth: 1,
+          padding: 10,
+          fontSize: 12,
+          fontFamily: fonts.regular,
+        },
+        code_inline: {
+          backgroundColor: colors.surface,
+          color: colors.accent,
+          borderColor: colors.border,
+          borderRadius: 2,
+          paddingHorizontal: 4,
+          paddingVertical: 1,
+          fontSize: 12,
+          fontFamily: fonts.regular,
+        },
+        blockquote: {
+          borderLeftColor: colors.border,
+          borderLeftWidth: 2,
+          paddingLeft: 10,
+          marginLeft: 0,
+          backgroundColor: "transparent",
+        },
+        bullet_list_icon: { color: colors.success },
+        ordered_list_icon: { color: colors.success },
+        strong: {
+          color: colors.bright,
+          fontFamily: fonts.bold,
+        },
+        em: {
+          color: colors.muted,
+          fontFamily: fonts.light,
+          fontStyle: "italic" as const,
+        },
+        hr: {
+          backgroundColor: colors.border,
+          height: 1,
+        },
+        list_item: {
+          color: colors.text,
+          fontFamily: fonts.regular,
+        },
+      }),
+    [colors],
   );
 
   if (!content) return null;

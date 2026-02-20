@@ -1,73 +1,93 @@
 /**
  * Root layout — providers + stack navigator.
+ * Dark-only terminal aesthetic. JetBrains Mono loaded here.
  */
 
 import "../global.css";
 
-import React, { useEffect } from "react";
+import React from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useFonts } from "@expo-google-fonts/jetbrains-mono";
 import {
-  useColorScheme as useNativeWindColorScheme,
-  colorScheme as nwColorScheme,
-} from "nativewind";
-import { useSettingsStore } from "../src/stores/settings";
+  JetBrainsMono_300Light,
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+  JetBrainsMono_600SemiBold,
+  JetBrainsMono_700Bold,
+} from "@expo-google-fonts/jetbrains-mono";
+import { ActivityIndicator, View } from "react-native";
+import { ThemeProvider, useTheme } from "../src/lib/ThemeContext";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
 
-export default function RootLayout() {
-  const { colorScheme } = useNativeWindColorScheme();
-  const settingsScheme = useSettingsStore((s) => s.colorScheme);
-
-  // Sync our settings store's color scheme preference with NativeWind
-  useEffect(() => {
-    if (settingsScheme === "system") {
-      nwColorScheme.set("system");
-    } else {
-      nwColorScheme.set(settingsScheme);
-    }
-  }, [settingsScheme]);
-
-  const isDark = colorScheme === "dark";
+function RootNavigator() {
+  const { colors } = useTheme();
 
   // Register for push notifications + handle deep links from notification taps
   usePushNotifications();
 
   return (
-    <SafeAreaProvider>
+    <>
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: isDark ? "#111827" : "#ffffff",
+            backgroundColor: colors.surface,
           },
-          headerTintColor: isDark ? "#f3f4f6" : "#111827",
-          headerTitleStyle: { fontWeight: "700" },
+          headerTintColor: colors.bright,
+          headerTitleStyle: { fontWeight: "700", fontFamily: "JetBrainsMono_700Bold" },
           contentStyle: {
-            backgroundColor: isDark ? "#030712" : "#f9fafb",
+            backgroundColor: colors.bg,
           },
         }}
       >
         <Stack.Screen
           name="index"
-          options={{ title: "Mast" }}
+          options={{ title: "mast" }}
         />
         <Stack.Screen
           name="chat/[id]"
-          options={{ title: "Chat" }}
+          options={{ title: "session" }}
         />
         <Stack.Screen
           name="pair"
           options={{
-            title: "Pair Device",
+            title: "pair",
             presentation: "modal",
           }}
         />
         <Stack.Screen
           name="settings"
-          options={{ title: "Settings" }}
+          options={{ title: "config" }}
         />
       </Stack>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      <StatusBar style="light" />
+    </>
+  );
+}
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    JetBrainsMono_300Light,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_600SemiBold,
+    JetBrainsMono_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0A0A0A", alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color="#22C55E" />
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <RootNavigator />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

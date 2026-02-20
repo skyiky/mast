@@ -1,10 +1,13 @@
 /**
- * SessionRow — Renders a single session in the session list.
+ * SessionRow — Terminal-style session list entry.
+ * ● active / ○ idle. Monospace throughout.
  */
 
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import type { Session } from "../stores/sessions";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 
 interface SessionRowProps {
   session: Session;
@@ -12,32 +15,56 @@ interface SessionRowProps {
 }
 
 export default function SessionRow({ session, onPress }: SessionRowProps) {
+  const { colors } = useTheme();
   const timeAgo = getTimeAgo(session.updatedAt || session.createdAt);
 
   return (
     <TouchableOpacity
       onPress={onPress}
-      className="flex-row items-center px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 active:bg-gray-50 dark:active:bg-gray-800"
+      activeOpacity={0.6}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.bg,
+      }}
     >
-      {/* Activity indicator dot */}
-      <View className="w-8 items-center">
-        {session.hasActivity && (
-          <View className="w-2.5 h-2.5 rounded-full bg-mast-500" />
-        )}
-      </View>
+      {/* Activity dot */}
+      <Text
+        style={{
+          fontFamily: fonts.regular,
+          fontSize: 10,
+          color: session.hasActivity ? colors.success : colors.dim,
+          width: 16,
+        }}
+      >
+        {session.hasActivity ? "●" : "○"}
+      </Text>
 
       {/* Content */}
-      <View className="flex-1 mr-3">
+      <View style={{ flex: 1, marginRight: 8 }}>
         <Text
-          className="text-base font-medium text-gray-900 dark:text-gray-100"
+          style={{
+            fontFamily: fonts.medium,
+            fontSize: 14,
+            color: colors.text,
+          }}
           numberOfLines={1}
         >
           {session.title || `${session.id.slice(0, 8)}...`}
         </Text>
         {session.lastMessagePreview && (
           <Text
-            className="text-sm text-gray-500 dark:text-gray-400 mt-0.5"
-            numberOfLines={2}
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 12,
+              color: colors.muted,
+              marginTop: 2,
+            }}
+            numberOfLines={1}
           >
             {session.lastMessagePreview}
           </Text>
@@ -45,13 +72,14 @@ export default function SessionRow({ session, onPress }: SessionRowProps) {
       </View>
 
       {/* Timestamp */}
-      <Text className="text-xs text-gray-400 dark:text-gray-500">
+      <Text
+        style={{
+          fontFamily: fonts.regular,
+          fontSize: 11,
+          color: colors.dim,
+        }}
+      >
         {timeAgo}
-      </Text>
-
-      {/* Chevron */}
-      <Text className="text-gray-300 dark:text-gray-600 ml-2 text-lg">
-        {">"}
       </Text>
     </TouchableOpacity>
   );

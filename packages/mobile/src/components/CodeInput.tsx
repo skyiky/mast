@@ -1,10 +1,12 @@
 /**
  * CodeInput — 6-digit verification code input for pairing.
- * Auto-advances focus between cells. Supports paste.
+ * Terminal-style: green focus borders, dark bg, monospace.
  */
 
 import React, { useRef, useState, useEffect } from "react";
-import { View, TextInput, Text, Keyboard } from "react-native";
+import { View, TextInput, Keyboard } from "react-native";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 
 interface CodeInputProps {
   length?: number;
@@ -17,10 +19,11 @@ export default function CodeInput({
   onComplete,
   error = false,
 }: CodeInputProps) {
+  const { colors } = useTheme();
   const [digits, setDigits] = useState<string[]>(Array(length).fill(""));
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
 
-  // Reset on error
   useEffect(() => {
     if (error) {
       setDigits(Array(length).fill(""));
@@ -29,7 +32,6 @@ export default function CodeInput({
   }, [error, length]);
 
   const handleChange = (text: string, index: number) => {
-    // Handle paste of full code
     if (text.length > 1) {
       const pasted = text.replace(/\D/g, "").slice(0, length);
       const newDigits = Array(length).fill("");
@@ -55,7 +57,6 @@ export default function CodeInput({
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Check if all filled
     const code = newDigits.join("");
     if (code.length === length) {
       Keyboard.dismiss();
@@ -72,12 +73,14 @@ export default function CodeInput({
     }
   };
 
-  const borderColor = error
-    ? "border-red-500"
-    : "border-gray-300 dark:border-gray-600 focus:border-mast-500";
+  const getBorderColor = (idx: number) => {
+    if (error) return colors.danger;
+    if (focusedIndex === idx) return colors.success;
+    return colors.border;
+  };
 
   return (
-    <View className="flex-row justify-center gap-2">
+    <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
       {digits.map((digit, idx) => (
         <TextInput
           key={idx}
@@ -87,11 +90,23 @@ export default function CodeInput({
           value={digit}
           onChangeText={(text) => handleChange(text, idx)}
           onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, idx)}
+          onFocus={() => setFocusedIndex(idx)}
+          onBlur={() => setFocusedIndex(null)}
           keyboardType="number-pad"
           maxLength={idx === 0 ? length : 1}
-          className={`w-12 h-14 text-center text-2xl font-bold rounded-xl border-2 ${borderColor} bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100`}
           selectTextOnFocus
           autoFocus={idx === 0}
+          style={{
+            width: 44,
+            height: 52,
+            textAlign: "center",
+            fontSize: 22,
+            fontFamily: fonts.bold,
+            color: colors.bright,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: getBorderColor(idx),
+          }}
         />
       ))}
     </View>

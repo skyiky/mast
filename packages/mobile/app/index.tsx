@@ -1,7 +1,5 @@
 /**
- * Session list — home screen.
- * Redirects to pair screen if not configured.
- * Lists sessions with pull-to-refresh and new session button.
+ * Session list — home screen. Terminal style.
  */
 
 import React, { useEffect, useCallback, useState } from "react";
@@ -18,12 +16,15 @@ import { useConnectionStore } from "../src/stores/connection";
 import { useSessionStore, type Session } from "../src/stores/sessions";
 import { useWebSocket } from "../src/hooks/useWebSocket";
 import { useApi } from "../src/hooks/useApi";
+import { useTheme } from "../src/lib/ThemeContext";
+import { fonts } from "../src/lib/themes";
 import ConnectionBanner from "../src/components/ConnectionBanner";
 import SessionRow from "../src/components/SessionRow";
 
 export default function SessionListScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const { colors } = useTheme();
   const paired = useConnectionStore((s) => s.paired);
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const sessions = useSessionStore((s) => s.sessions);
@@ -35,21 +36,30 @@ export default function SessionListScreen() {
 
   const api = useApi();
 
-  // Connect WebSocket (global — stays connected across screens)
   useWebSocket();
 
-  // Settings header button
+  // Settings header button — terminal style
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <TouchableOpacity onPress={() => router.push("/settings")} className="mr-2">
-          <Text className="text-mast-600 dark:text-mast-400 text-base">Settings</Text>
+        <TouchableOpacity
+          onPress={() => router.push("/settings")}
+          style={{ marginRight: 8 }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 13,
+              color: colors.accent,
+            }}
+          >
+            [config]
+          </Text>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, router]);
+  }, [navigation, router, colors]);
 
-  // Load sessions on mount
   useEffect(() => {
     if (paired && serverUrl) {
       loadSessions();
@@ -104,38 +114,71 @@ export default function SessionListScreen() {
     [router],
   );
 
-  // Redirect to pairing if not configured
   if (!paired || !serverUrl) return <Redirect href="/pair" />;
 
   return (
-    <View className="flex-1 bg-gray-50 dark:bg-gray-950">
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ConnectionBanner />
 
       {loadingSessions && sessions.length === 0 ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#5c7cfa" />
-          <Text className="text-gray-500 dark:text-gray-400 mt-3 text-sm">
-            Loading sessions...
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="large" color={colors.success} />
+          <Text
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 13,
+              color: colors.muted,
+              marginTop: 12,
+            }}
+          >
+            loading sessions...
           </Text>
         </View>
       ) : sessions.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            No sessions yet
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
+          <Text
+            style={{
+              fontFamily: fonts.bold,
+              fontSize: 18,
+              color: colors.bright,
+              marginBottom: 8,
+            }}
+          >
+            no sessions
           </Text>
-          <Text className="text-gray-500 dark:text-gray-400 text-center text-base mb-6">
-            Start a new session to begin working with your AI agent.
+          <Text
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 13,
+              color: colors.muted,
+              textAlign: "center",
+              marginBottom: 20,
+            }}
+          >
+            start a new session to begin working with your agent.
           </Text>
           <TouchableOpacity
             onPress={handleNewSession}
             disabled={creatingSession}
-            className="bg-mast-600 dark:bg-mast-700 px-8 py-3 rounded-xl active:bg-mast-700"
+            activeOpacity={0.6}
+            style={{
+              borderWidth: 1,
+              borderColor: colors.success,
+              paddingHorizontal: 24,
+              paddingVertical: 10,
+            }}
           >
             {creatingSession ? (
-              <ActivityIndicator color="#ffffff" />
+              <ActivityIndicator color={colors.success} />
             ) : (
-              <Text className="text-white font-semibold text-base">
-                New Session
+              <Text
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 14,
+                  color: colors.success,
+                }}
+              >
+                [new session]
               </Text>
             )}
           </TouchableOpacity>
@@ -154,24 +197,44 @@ export default function SessionListScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#5c7cfa"
+              tintColor={colors.success}
             />
           }
           contentContainerStyle={{ paddingBottom: 100 }}
         />
       )}
 
-      {/* FAB for new session */}
+      {/* FAB for new session — green bordered, not filled */}
       {sessions.length > 0 && (
         <TouchableOpacity
           onPress={handleNewSession}
           disabled={creatingSession}
-          className="absolute bottom-8 right-6 w-14 h-14 rounded-full bg-mast-600 dark:bg-mast-700 items-center justify-center shadow-lg active:bg-mast-700"
+          activeOpacity={0.6}
+          style={{
+            position: "absolute",
+            bottom: 32,
+            right: 24,
+            width: 52,
+            height: 52,
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 1,
+            borderColor: colors.success,
+            backgroundColor: colors.surface,
+          }}
         >
           {creatingSession ? (
-            <ActivityIndicator color="#ffffff" />
+            <ActivityIndicator color={colors.success} />
           ) : (
-            <Text className="text-white text-2xl font-light">+</Text>
+            <Text
+              style={{
+                fontFamily: fonts.light,
+                fontSize: 24,
+                color: colors.success,
+              }}
+            >
+              +
+            </Text>
           )}
         </TouchableOpacity>
       )}

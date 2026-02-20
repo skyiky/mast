@@ -1,11 +1,14 @@
 /**
- * PermissionCard — Approve/deny permission requests from the agent.
+ * PermissionCard — Terminal-style permission approval.
+ * Amber border, ⚠ prefix, monospace [deny]/[approve] buttons.
  */
 
 import React from "react";
 import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { PermissionRequest } from "../stores/sessions";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 
 interface PermissionCardProps {
   permission: PermissionRequest;
@@ -20,6 +23,7 @@ export default function PermissionCard({
   onDeny,
   loading = false,
 }: PermissionCardProps) {
+  const { colors } = useTheme();
   const isPending = permission.status === "pending";
 
   const handleApprove = () => {
@@ -33,57 +37,137 @@ export default function PermissionCard({
   };
 
   return (
-    <View className="mx-4 my-2 rounded-xl border-2 border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 overflow-hidden">
-      <View className="px-4 py-3">
-        <View className="flex-row items-center mb-2">
-          <Text className="text-amber-600 dark:text-amber-400 text-sm font-bold">
-            Permission Required
-          </Text>
-        </View>
-        <Text className="text-sm text-gray-800 dark:text-gray-200 leading-5">
+    <View
+      style={{
+        marginHorizontal: 12,
+        marginVertical: 6,
+        borderWidth: 1,
+        borderColor: colors.warning,
+        backgroundColor: colors.warningDim,
+        overflow: "hidden",
+      }}
+    >
+      {/* Header + description */}
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        <Text
+          style={{
+            fontFamily: fonts.semibold,
+            fontSize: 12,
+            color: colors.warning,
+            marginBottom: 4,
+          }}
+        >
+          ⚠ permission required
+        </Text>
+        <Text
+          style={{
+            fontFamily: fonts.regular,
+            fontSize: 13,
+            color: colors.text,
+            lineHeight: 19,
+          }}
+        >
           {permission.description}
         </Text>
       </View>
 
+      {/* Action buttons */}
       {isPending && (
-        <View className="flex-row border-t border-amber-200 dark:border-amber-800">
+        <View
+          style={{
+            flexDirection: "row",
+            borderTopWidth: 1,
+            borderTopColor: colors.warning,
+          }}
+        >
           <TouchableOpacity
             onPress={handleDeny}
             disabled={loading}
-            className="flex-1 py-3 items-center border-r border-amber-200 dark:border-amber-800 active:bg-red-50 dark:active:bg-red-900/20"
+            style={{
+              flex: 1,
+              paddingVertical: 8,
+              alignItems: "center",
+              borderRightWidth: 1,
+              borderRightColor: colors.warning,
+            }}
+            activeOpacity={0.6}
           >
-            <Text className="text-red-600 dark:text-red-400 font-semibold text-sm">
-              Deny
+            <Text
+              style={{
+                fontFamily: fonts.medium,
+                fontSize: 12,
+                color: colors.danger,
+              }}
+            >
+              [deny]
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleApprove}
             disabled={loading}
-            className="flex-1 py-3 items-center active:bg-green-50 dark:active:bg-green-900/20"
+            style={{
+              flex: 1,
+              paddingVertical: 8,
+              alignItems: "center",
+            }}
+            activeOpacity={0.6}
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#22c55e" />
+              <ActivityIndicator size="small" color={colors.success} />
             ) : (
-              <Text className="text-green-600 dark:text-green-400 font-semibold text-sm">
-                Approve
+              <Text
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 12,
+                  color: colors.success,
+                }}
+              >
+                [approve]
               </Text>
             )}
           </TouchableOpacity>
         </View>
       )}
 
+      {/* Status indicators */}
       {permission.status === "approved" && (
-        <View className="px-4 py-2 bg-green-100 dark:bg-green-900/30">
-          <Text className="text-green-700 dark:text-green-400 text-xs font-medium text-center">
-            Approved
+        <View
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            backgroundColor: colors.successDim,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 11,
+              color: colors.success,
+              textAlign: "center",
+            }}
+          >
+            ✓ approved
           </Text>
         </View>
       )}
 
       {permission.status === "denied" && (
-        <View className="px-4 py-2 bg-red-100 dark:bg-red-900/30">
-          <Text className="text-red-700 dark:text-red-400 text-xs font-medium text-center">
-            Denied
+        <View
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            backgroundColor: colors.dangerDim,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 11,
+              color: colors.danger,
+              textAlign: "center",
+            }}
+          >
+            ✗ denied
           </Text>
         </View>
       )}

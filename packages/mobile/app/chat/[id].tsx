@@ -1,5 +1,5 @@
 /**
- * Chat screen — renders messages for a specific session.
+ * Chat screen — terminal-style message view with prompt input.
  */
 
 import React, { useEffect, useCallback, useMemo, useRef, useState } from "react";
@@ -19,6 +19,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSessionStore, type ChatMessage } from "../../src/stores/sessions";
 import { useSettingsStore } from "../../src/stores/settings";
 import { useApi } from "../../src/hooks/useApi";
+import { useTheme } from "../../src/lib/ThemeContext";
+import { fonts } from "../../src/lib/themes";
 import ConnectionBanner from "../../src/components/ConnectionBanner";
 import MessageBubble from "../../src/components/MessageBubble";
 import PermissionCard from "../../src/components/PermissionCard";
@@ -33,6 +35,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
+  const { colors } = useTheme();
 
   const messages = useSessionStore(
     (s) => s.messagesBySession[id ?? ""] ?? EMPTY_MESSAGES,
@@ -52,22 +55,28 @@ export default function ChatScreen() {
   const verbosity = useSettingsStore((s) => s.verbosity);
   const toggleVerbosity = useSettingsStore((s) => s.toggleVerbosity);
 
-  // Set header options
+  // Set header options — terminal style
   useEffect(() => {
     navigation.setOptions({
-      title: session?.title || (id ? `${id.slice(0, 8)}...` : "Chat"),
+      title: session?.title || (id ? `${id.slice(0, 8)}` : "session"),
       headerRight: () => (
         <TouchableOpacity
           onPress={toggleVerbosity}
-          className="mr-2 h-8 w-12 items-center justify-center"
+          style={{ marginRight: 8, height: 32, width: 48, alignItems: "center", justifyContent: "center" }}
         >
-          <Text className="text-mast-600 dark:text-mast-400 text-sm font-medium">
-            {verbosity === "standard" ? "Full" : "Std"}
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 12,
+              color: colors.accent,
+            }}
+          >
+            {verbosity === "standard" ? "[full]" : "[std]"}
           </Text>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, id, session?.title, verbosity, toggleVerbosity]);
+  }, [navigation, id, session?.title, verbosity, toggleVerbosity, colors]);
 
   // Track active session
   useEffect(() => {
@@ -75,10 +84,7 @@ export default function ChatScreen() {
     return () => setActiveSessionId(null);
   }, [id, setActiveSessionId]);
 
-  // Load messages from API on mount.
-  // Uses an abort flag to prevent overwriting streaming state if the user
-  // sends a message before the initial load completes, and checks for
-  // active streaming messages before calling setMessages.
+  // Load messages from API on mount
   const initialLoadAborted = useRef(false);
 
   useEffect(() => {
@@ -89,40 +95,32 @@ export default function ChatScreen() {
       try {
         const res = await api.messages(id);
 
-        // Abort guard: if the user sent a message while we were fetching,
-        // don't overwrite the store with stale historical data.
         if (initialLoadAborted.current) return;
 
         if (res.status === 200 && Array.isArray(res.body)) {
-           const mapped: ChatMessage[] = res.body.map((m: any) => {
-            // OpenCode returns { info: { id, role, ... }, parts: [...] }
+          const mapped: ChatMessage[] = res.body.map((m: any) => {
             const info = m.info ?? m;
             return {
               id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               role: info.role ?? m.role ?? "assistant",
               parts: (m.parts ?? [])
                 .filter((p: any) => {
-                  // Keep text, tool-invocation, tool-result, reasoning, file
-                  // Skip step-start, step-finish, and other internal part types
                   const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
                   return kept.includes(p.type);
                 })
                 .map((p: any) => ({
                   type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
-                  // OpenCode text parts use "text" field, not "content"
                   content: p.text ?? p.content ?? "",
                   toolName: p.toolName ?? p.name,
                   toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
                 })),
-              streaming: false, // Historical messages are never streaming
+              streaming: false,
               createdAt: info.time?.created
                 ? new Date(info.time.created).toISOString()
                 : m.createdAt ?? new Date().toISOString(),
             };
           });
 
-          // Defense: don't overwrite if there are already streaming messages
-          // in the store (user sent a message while we were loading).
           const currentMessages = useSessionStore.getState().messagesBySession[id];
           if (currentMessages?.some((m) => m.streaming)) return;
 
@@ -136,8 +134,7 @@ export default function ChatScreen() {
     })();
   }, [id]);
 
-  // Auto-scroll to bottom when new messages arrive or content streams in.
-  // Track total content length so delta streaming also triggers scroll.
+  // Auto-scroll on new messages / streaming content
   const lastMsg = messages[messages.length - 1];
   const lastContentLen = lastMsg?.parts.reduce(
     (sum, p) => sum + (p.content?.length ?? 0),
@@ -156,12 +153,9 @@ export default function ChatScreen() {
     const text = inputText.trim();
     if (!text || !id || sending) return;
 
-    // Abort any pending initial load so it doesn't overwrite streaming state
     initialLoadAborted.current = true;
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Add user message locally
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -206,7 +200,7 @@ export default function ChatScreen() {
     [id, api],
   );
 
-  // Build render list: interleave messages and permission cards
+  // Build render list
   const renderData: Array<
     | { type: "message"; item: ChatMessage }
     | { type: "permission"; item: (typeof permissions)[0] }
@@ -216,12 +210,13 @@ export default function ChatScreen() {
     renderData.push({ type: "message", item: msg });
   });
 
-  // Add pending permissions at the end
   permissions
     .filter((p) => p.status === "pending")
     .forEach((perm) => {
       renderData.push({ type: "permission", item: perm });
     });
+
+  const hasInput = inputText.trim().length > 0;
 
   return (
     <KeyboardAvoidingView
@@ -229,7 +224,7 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 56 + insets.top : 0}
     >
-      <View className="flex-1 bg-gray-50 dark:bg-gray-950">
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <ConnectionBanner />
 
         <FlatList
@@ -251,43 +246,90 @@ export default function ChatScreen() {
               );
             }
             return (
-              <View className="px-4">
+              <View style={{ paddingHorizontal: 12 }}>
                 <MessageBubble message={item.item} />
               </View>
             );
           }}
           contentContainerStyle={{ paddingTop: 8, paddingBottom: 16 }}
           style={{ flex: 1 }}
+          ItemSeparatorComponent={() => (
+            <View style={{ height: 1, backgroundColor: colors.border, marginHorizontal: 12, marginVertical: 2 }} />
+          )}
         />
 
+        {/* Terminal prompt input bar */}
         <View
-          className="flex-row items-end px-3 py-2 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800"
-          style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-end",
+            paddingHorizontal: 12,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 8),
+            backgroundColor: colors.surface,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+          }}
         >
+          {/* > prompt character */}
+          <Text
+            style={{
+              fontFamily: fonts.semibold,
+              fontSize: 18,
+              color: colors.accent,
+              marginRight: 6,
+              marginBottom: Platform.OS === "ios" ? 8 : 10,
+            }}
+          >
+            {">"}
+          </Text>
           <TextInput
-            className="flex-1 min-h-[40px] max-h-[100px] bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2.5 mr-2 text-base text-gray-900 dark:text-gray-100"
+            style={{
+              flex: 1,
+              minHeight: 40,
+              maxHeight: 100,
+              fontFamily: fonts.regular,
+              fontSize: 15,
+              color: colors.bright,
+              paddingVertical: 8,
+              paddingHorizontal: 0,
+            }}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Type a message..."
-            placeholderTextColor="#9ca3af"
+            placeholder="type a command..."
+            placeholderTextColor={colors.dim}
             multiline
             returnKeyType="send"
             onSubmitEditing={handleSend}
             blurOnSubmit
           />
+          {/* ↵ send button */}
           <TouchableOpacity
             onPress={handleSend}
-            disabled={!inputText.trim() || sending}
-            className={`h-10 w-10 rounded-full items-center justify-center ${
-              inputText.trim() && !sending
-                ? "bg-mast-600 dark:bg-mast-700"
-                : "bg-gray-300 dark:bg-gray-700"
-            }`}
+            disabled={!hasInput || sending}
+            style={{
+              height: 36,
+              width: 36,
+              alignItems: "center",
+              justifyContent: "center",
+              marginLeft: 6,
+              marginBottom: Platform.OS === "ios" ? 4 : 6,
+              borderWidth: 1,
+              borderColor: hasInput && !sending ? colors.success : colors.border,
+            }}
           >
             {sending ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ActivityIndicator size="small" color={colors.success} />
             ) : (
-              <Text className="text-white font-bold text-lg">^</Text>
+              <Text
+                style={{
+                  fontFamily: fonts.bold,
+                  fontSize: 16,
+                  color: hasInput ? colors.success : colors.dim,
+                }}
+              >
+                ↵
+              </Text>
             )}
           </TouchableOpacity>
         </View>

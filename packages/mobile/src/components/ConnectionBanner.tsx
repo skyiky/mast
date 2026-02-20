@@ -1,37 +1,49 @@
 /**
- * ConnectionBanner — Shows connection status when degraded.
- * Appears at the top of screens when daemon or OpenCode is offline.
+ * ConnectionBanner — Terminal-style status bar when degraded.
  */
 
 import React from "react";
 import { View, Text } from "react-native";
 import { useConnectionStore } from "../stores/connection";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 
 export default function ConnectionBanner() {
+  const { colors } = useTheme();
   const wsConnected = useConnectionStore((s) => s.wsConnected);
   const daemonConnected = useConnectionStore((s) => s.daemonConnected);
   const opencodeReady = useConnectionStore((s) => s.opencodeReady);
 
-  // Everything is fine
   if (wsConnected && daemonConnected && opencodeReady) return null;
 
   let message = "";
-  let bgColor = "";
+  let bgColor = colors.dangerDim;
+  let fgColor = colors.danger;
 
   if (!wsConnected) {
-    message = "Connecting to server...";
-    bgColor = "bg-red-500 dark:bg-red-700";
+    message = "// connecting to server...";
+    bgColor = colors.dangerDim;
+    fgColor = colors.danger;
   } else if (!daemonConnected) {
-    message = "Daemon offline";
-    bgColor = "bg-amber-500 dark:bg-amber-700";
+    message = "// daemon offline";
+    bgColor = colors.warningDim;
+    fgColor = colors.warning;
   } else if (!opencodeReady) {
-    message = "OpenCode not ready";
-    bgColor = "bg-amber-500 dark:bg-amber-700";
+    message = "// opencode not ready";
+    bgColor = colors.warningDim;
+    fgColor = colors.warning;
   }
 
   return (
-    <View className={`${bgColor} px-4 py-2`}>
-      <Text className="text-white text-xs font-medium text-center">
+    <View style={{ backgroundColor: bgColor, paddingHorizontal: 14, paddingVertical: 6 }}>
+      <Text
+        style={{
+          fontFamily: fonts.regular,
+          fontSize: 11,
+          color: fgColor,
+          textAlign: "center",
+        }}
+      >
         {message}
       </Text>
     </View>

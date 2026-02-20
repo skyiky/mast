@@ -1,11 +1,17 @@
 /**
- * MessageBubble — Renders a single chat message.
+ * MessageBubble — Terminal-style message block.
+ *
+ * No bubbles. Full-width blocks.
+ * - User messages: cyan ">" prefix, bright white text
+ * - Agent messages: thin green left border, standard text color
  */
 
 import React from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 import type { ChatMessage, MessagePart } from "../stores/sessions";
 import { useSettingsStore } from "../stores/settings";
+import { useTheme } from "../lib/ThemeContext";
+import { fonts } from "../lib/themes";
 import MarkdownContent from "./MarkdownContent";
 import ToolCallCard from "./ToolCallCard";
 
@@ -15,65 +21,96 @@ interface MessageBubbleProps {
 
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const verbosity = useSettingsStore((s) => s.verbosity);
+  const { colors } = useTheme();
   const isUser = message.role === "user";
 
   const visibleParts = message.parts.filter((part) => {
     if (verbosity === "standard") {
-      // Hide reasoning in standard mode
       if (part.type === "reasoning") return false;
-      // Tool results are folded into tool cards
       if (part.type === "tool-result") return false;
     }
     return true;
   });
 
-  // A part has visible content if it's non-text (tool cards, etc.) or
-  // it's text with actual non-empty content.
   const hasVisibleContent = visibleParts.some(
     (part) => part.type !== "text" || part.content,
   );
 
+  // Format timestamp
+  const time = message.createdAt
+    ? new Date(message.createdAt).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+    : null;
+
   return (
     <View
-      className={`max-w-[85%] px-4 py-3 my-1 ${
-        isUser
-          ? "self-end rounded-2xl rounded-br-md bg-mast-600 dark:bg-mast-700"
-          : "self-start rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-800"
-      }`}
+      style={[
+        {
+          paddingVertical: 6,
+          paddingHorizontal: 0,
+          borderLeftWidth: isUser ? 0 : 2,
+          borderLeftColor: isUser ? "transparent" : colors.success,
+        },
+      ]}
     >
-      {visibleParts.map((part, idx) => (
-        <PartRenderer
-          key={`${message.id}-${idx}`}
-          part={part}
-          isUser={isUser}
-          verbosity={verbosity}
-          allParts={message.parts}
-        />
-      ))}
+      {/* Timestamp — right-aligned */}
+      {time && (
+        <Text
+          style={{
+            fontFamily: fonts.regular,
+            fontSize: 10,
+            color: colors.dim,
+            textAlign: "right",
+            marginBottom: 2,
+            paddingRight: 4,
+          }}
+        >
+          {time}
+        </Text>
+      )}
 
-      {/* Show "Thinking..." until actual content arrives, regardless of
-          streaming flag. OpenCode's finish:stop event can arrive BEFORE
-          text parts, which sets streaming=false prematurely. We keep the
-          indicator visible until real content appears. */}
-      {!hasVisibleContent && (
-        <View className="flex-row items-center">
-          <Text className="text-gray-400 dark:text-gray-500 text-sm italic mr-2">
-            Thinking...
-          </Text>
+      {/* Message content */}
+      <View style={{ paddingLeft: isUser ? 0 : 10 }}>
+        {visibleParts.map((part, idx) => (
+          <PartRenderer
+            key={`${message.id}-${idx}`}
+            part={part}
+            isUser={isUser}
+            verbosity={verbosity}
+            allParts={message.parts}
+          />
+        ))}
+
+        {/* Thinking state — blinking-style dots */}
+        {!hasVisibleContent && (
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text
+              style={{
+                fontFamily: fonts.regular,
+                fontSize: 13,
+                color: colors.muted,
+                fontStyle: "italic",
+                marginRight: 6,
+              }}
+            >
+              ...
+            </Text>
+            <ActivityIndicator size="small" color={colors.muted} />
+          </View>
+        )}
+
+        {/* Streaming indicator */}
+        {message.streaming && hasVisibleContent && (
           <ActivityIndicator
             size="small"
-            color="#9ca3af"
+            color={isUser ? colors.accent : colors.success}
+            style={{ marginTop: 4, alignSelf: "flex-start" }}
           />
-        </View>
-      )}
-
-      {message.streaming && hasVisibleContent && (
-        <ActivityIndicator
-          size="small"
-          color={isUser ? "#ffffff" : "#9ca3af"}
-          className="mt-1 self-start"
-        />
-      )}
+        )}
+      </View>
     </View>
   );
 }
@@ -89,19 +126,40 @@ function PartRenderer({
   verbosity: "standard" | "full";
   allParts: MessagePart[];
 }) {
+  const { colors } = useTheme();
+
   switch (part.type) {
     case "text":
       if (isUser) {
         return (
-          <Text className="text-white text-base leading-6">
-            {part.content}
-          </Text>
+          <View style={{ flexDirection: "row" }}>
+            <Text
+              style={{
+                fontFamily: fonts.semibold,
+                fontSize: 15,
+                color: colors.accent,
+                marginRight: 6,
+              }}
+            >
+              {">"}
+            </Text>
+            <Text
+              style={{
+                fontFamily: fonts.regular,
+                fontSize: 15,
+                color: colors.bright,
+                flex: 1,
+                lineHeight: 22,
+              }}
+            >
+              {part.content}
+            </Text>
+          </View>
         );
       }
       return <MarkdownContent content={part.content} />;
 
     case "tool-invocation": {
-      // Find matching tool-result
       const result = allParts.find(
         (p) => p.type === "tool-result" && p.toolName === part.toolName,
       );
@@ -117,11 +175,34 @@ function PartRenderer({
 
     case "reasoning":
       return (
-        <View className="mt-2 pl-3 border-l-2 border-gray-300 dark:border-gray-600">
-          <Text className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-1">
-            Reasoning
+        <View
+          style={{
+            marginTop: 6,
+            paddingLeft: 10,
+            borderLeftWidth: 2,
+            borderLeftColor: colors.border,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.medium,
+              fontSize: 10,
+              color: colors.muted,
+              marginBottom: 2,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+            }}
+          >
+            reasoning
           </Text>
-          <Text className="text-sm text-gray-600 dark:text-gray-400 leading-5">
+          <Text
+            style={{
+              fontFamily: fonts.light,
+              fontSize: 12,
+              color: colors.muted,
+              lineHeight: 18,
+            }}
+          >
             {part.content}
           </Text>
         </View>
@@ -129,19 +210,47 @@ function PartRenderer({
 
     case "file":
       return (
-        <View className="mt-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-3 py-2">
-          <Text className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+        <View
+          style={{
+            marginTop: 6,
+            backgroundColor: colors.surface,
+            borderRadius: 4,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.regular,
+              fontSize: 12,
+              color: colors.muted,
+            }}
+          >
             {part.content}
           </Text>
         </View>
       );
 
     case "tool-result":
-      // Rendered inline with tool-invocation in full mode
       if (verbosity === "full") {
         return (
-          <View className="mt-1 bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">
-            <Text className="text-xs text-green-700 dark:text-green-400 font-mono">
+          <View
+            style={{
+              marginTop: 4,
+              backgroundColor: colors.successDim,
+              borderRadius: 4,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: fonts.regular,
+                fontSize: 11,
+                color: colors.success,
+                lineHeight: 16,
+              }}
+            >
               {part.content.length > 500
                 ? part.content.slice(0, 500) + "..."
                 : part.content}
