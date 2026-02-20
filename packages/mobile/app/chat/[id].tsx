@@ -187,41 +187,42 @@ export default function ChatScreen() {
     });
 
   return (
-    <View className="flex-1 bg-gray-50 dark:bg-gray-950">
-      <ConnectionBanner />
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 56 + insets.top : 0}
+    >
+      <View className="flex-1 bg-gray-50 dark:bg-gray-950">
+        <ConnectionBanner />
 
-      <FlatList
-        ref={flatListRef}
-        data={renderData}
-        keyExtractor={(item, idx) =>
-          item.type === "message"
-            ? item.item.id
-            : `perm-${item.item.id}`
-        }
-        renderItem={({ item }) => {
-          if (item.type === "permission") {
-            return (
-              <PermissionCard
-                permission={item.item}
-                onApprove={handleApprove}
-                onDeny={handleDeny}
-              />
-            );
+        <FlatList
+          ref={flatListRef}
+          data={renderData}
+          keyExtractor={(item, idx) =>
+            item.type === "message"
+              ? item.item.id
+              : `perm-${item.item.id}`
           }
-          return (
-            <View className="px-4">
-              <MessageBubble message={item.item} />
-            </View>
-          );
-        }}
-        contentContainerStyle={{ paddingVertical: 8, paddingBottom: 8 }}
-        className="flex-1"
-      />
+          renderItem={({ item }) => {
+            if (item.type === "permission") {
+              return (
+                <PermissionCard
+                  permission={item.item}
+                  onApprove={handleApprove}
+                  onDeny={handleDeny}
+                />
+              );
+            }
+            return (
+              <View className="px-4">
+                <MessageBubble message={item.item} />
+              </View>
+            );
+          }}
+          contentContainerStyle={{ paddingTop: 8, paddingBottom: 16 }}
+          style={{ flex: 1 }}
+        />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 56 + insets.top : 0}
-      >
         <View
           className="flex-row items-end px-3 py-2 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800"
           style={{ paddingBottom: Math.max(insets.bottom, 8) }}
@@ -253,7 +254,7 @@ export default function ChatScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
