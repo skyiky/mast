@@ -14,7 +14,7 @@ import WebSocket from "ws";
 import { startServer, type ServerHandle } from "../src/server.js";
 import { PairingManager } from "../src/pairing.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
-import { Relay } from "../../daemon/src/relay.js";
+import { SemanticRelay } from "../../daemon/src/relay.js";
 import { HARDCODED_API_TOKEN } from "@mast/shared";
 import { apiRequest, sleep } from "./helpers.js";
 

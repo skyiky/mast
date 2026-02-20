@@ -55,9 +55,9 @@ describe("DaemonConnection", () => {
     // Use type assertion since we just need minimal ws behavior
     conn.setConnection(fakeWs as any);
 
-    // Send two requests that will be pending
-    const p1 = conn.sendRequest("GET", "/test1");
-    const p2 = conn.sendRequest("GET", "/test2");
+    // Send two commands that will be pending
+    const p1 = conn.sendCommand({ type: "list_sessions", requestId: generateRequestId() });
+    const p2 = conn.sendCommand({ type: "list_sessions", requestId: generateRequestId() });
 
     // Now clear the connection — should reject both
     conn.clearConnection();
@@ -67,10 +67,10 @@ describe("DaemonConnection", () => {
     await assert.rejects(p2, { message: "Daemon disconnected" });
   });
 
-  it("3. sendRequest rejects when not connected", async () => {
+  it("3. sendCommand rejects when not connected", async () => {
     const conn = new DaemonConnection();
     await assert.rejects(
-      conn.sendRequest("GET", "/test"),
+      conn.sendCommand({ type: "list_sessions", requestId: generateRequestId() }),
       { message: "Daemon not connected" },
     );
   });
@@ -176,7 +176,7 @@ describe("InMemorySessionStore", () => {
 describe("decidePush", () => {
   it("returns correct decisions for each event type", () => {
     // permission.created → send
-    const perm = decidePush("permission.created", {
+    const perm = decidePush("mast.permission.created", {
       permission: { id: "p1", description: "run tests" },
       sessionID: "s1",
     });
@@ -185,17 +185,17 @@ describe("decidePush", () => {
     assert.ok(perm.body.includes("run tests"));
 
     // message.completed → send
-    const completed = decidePush("message.completed", { sessionID: "s1" });
+    const completed = decidePush("mast.message.completed", { sessionID: "s1" });
     assert.equal(completed.send, true);
     assert.equal(completed.title, "Task complete");
 
     // message.part.updated → send
-    const working = decidePush("message.part.updated", { sessionID: "s1" });
+    const working = decidePush("mast.message.part.updated", { sessionID: "s1" });
     assert.equal(working.send, true);
     assert.equal(working.title, "Agent working");
 
     // unknown → don't send
-    const unknown = decidePush("session.created", {});
+    const unknown = decidePush("mast.session.created", {});
     assert.equal(unknown.send, false);
   });
 });
@@ -367,7 +367,7 @@ describe("processSyncResponse", () => {
     assert.equal(broadcasts.length, 2, "Should broadcast 2 events");
     const event0 = broadcasts[0] as any;
     assert.equal(event0.type, "event");
-    assert.equal(event0.event.type, "message.created");
+    assert.equal(event0.event.type, "mast.message.created");
     assert.equal(event0.event.data.sessionID, "sess-1");
   });
 

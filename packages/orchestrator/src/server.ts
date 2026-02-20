@@ -39,14 +39,16 @@ export function startServer(
     const pairingManager = config?.pairingManager ?? new PairingManager();
     const timestampTracker = new EventTimestampTracker();
 
-    // Track daemon-reported OpenCode status for broadcasting to phones
-    let lastOpencodeReady = false;
+    // Track daemon-reported agent status for broadcasting to phones
+    let lastAgentReady = false;
+    let lastAgents: Array<{ type: string; ready: boolean }> = [];
 
     /** Build a status snapshot for phones */
     const buildPhoneStatus = (): PhoneStatusMessage => ({
       type: "status",
       daemonConnected: daemonConnection.isConnected(),
-      opencodeReady: lastOpencodeReady,
+      agentReady: lastAgentReady,
+      agents: lastAgents,
     });
 
     const app = createApp({ daemonConnection, phoneConnections, store, pairingManager });
@@ -90,7 +92,8 @@ export function startServer(
 
     // Wire daemon status updates to phone clients
     daemonConnection.onStatus = (status) => {
-      lastOpencodeReady = status.opencodeReady;
+      lastAgentReady = status.agentReady;
+      lastAgents = status.agents;
       phoneConnections.broadcastStatus(buildPhoneStatus());
     };
 
@@ -186,7 +189,8 @@ export function startServer(
 
           ws.on("close", () => {
             daemonConnection.clearConnection();
-            lastOpencodeReady = false;
+            lastAgentReady = false;
+            lastAgents = [];
             // Notify phones that daemon disconnected
             phoneConnections.broadcastStatus(buildPhoneStatus());
             // Schedule deferred daemon-offline push
@@ -198,7 +202,8 @@ export function startServer(
           ws.on("error", (err) => {
             console.error("[orchestrator] daemon ws error:", err);
             daemonConnection.clearConnection();
-            lastOpencodeReady = false;
+            lastAgentReady = false;
+            lastAgents = [];
             // Notify phones that daemon disconnected
             phoneConnections.broadcastStatus(buildPhoneStatus());
             if (pushNotifier) {
@@ -276,13 +281,13 @@ async function cacheEvent(
   store: SessionStore,
   event: EventMessage,
 ): Promise<void> {
-  const data = event.event.data as Record<string, unknown> | undefined;
+  const data = event.event.data;
   if (!data) return;
 
-  const sessionId = data.sessionID as string | undefined;
+  const sessionId = event.event.sessionId || (data.sessionID as string | undefined);
 
   switch (event.event.type) {
-    case "message.created": {
+    case "mast.message.created": {
       const msg = data.message as
         | { id: string; role: string }
         | undefined;
@@ -298,8 +303,8 @@ async function cacheEvent(
       break;
     }
 
-    case "message.part.created":
-    case "message.part.updated": {
+    case "mast.message.part.created":
+    case "mast.message.part.updated": {
       const messageId = data.messageID as string | undefined;
       const part = data.part as { type: string; content?: string } | undefined;
       if (messageId && part) {
@@ -308,7 +313,7 @@ async function cacheEvent(
       break;
     }
 
-    case "message.completed": {
+    case "mast.message.completed": {
       const messageId = data.messageID as string | undefined;
       if (messageId) {
         await store.markMessageComplete(messageId);

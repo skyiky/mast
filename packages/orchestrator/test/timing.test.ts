@@ -2,23 +2,26 @@
  * Phase 4 tests: Daemon Reconnect Timing
  *
  * Tests the exponential backoff reconnection logic.
- * Uses the Relay class directly with controlled disconnect/reconnect cycles.
+ * Uses the SemanticRelay class directly with controlled disconnect/reconnect cycles.
  */
 
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startServer, type ServerHandle } from "../src/server.js";
-import { Relay } from "../../daemon/src/relay.js";
+import { SemanticRelay } from "../../daemon/src/relay.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
-import { sleep } from "./helpers.js";
+import { createRelayStack, sleep } from "./helpers.js";
+import type { AgentRouter } from "../../daemon/src/agent-router.js";
 
 describe("Daemon reconnect timing", () => {
   let server: ServerHandle;
   let fakeOpenCode: FakeOpenCode;
-  let relay: Relay;
+  let relay: SemanticRelay;
+  let router: AgentRouter;
 
   afterEach(async () => {
     if (relay) await relay.disconnect();
+    if (router) await router.stopAll();
     if (server) await server.close();
     if (fakeOpenCode) await fakeOpenCode.close();
   });
@@ -28,7 +31,7 @@ describe("Daemon reconnect timing", () => {
     server = await startServer(0);
     return {
       orchestratorPort: server.port,
-      fakeOpenCodeUrl: fakeOpenCode.baseUrl,
+      fakeOpenCode,
     };
   }
 
@@ -108,13 +111,11 @@ describe("Daemon reconnect timing", () => {
   });
 
   it("28. successful reconnect resets the backoff counter", async () => {
-    const { orchestratorPort, fakeOpenCodeUrl } = await setup();
+    const { orchestratorPort, fakeOpenCode: foc } = await setup();
 
-    relay = new Relay(
-      `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
-    );
-    await relay.connect();
+    const stack1 = await createRelayStack(orchestratorPort, foc);
+    relay = stack1.relay;
+    router = stack1.router;
     await sleep(50);
 
     // Verify connected
@@ -125,14 +126,13 @@ describe("Daemon reconnect timing", () => {
     // Disconnect by closing the server-side connection
     // We simulate this by just disconnecting and reconnecting
     await relay.disconnect();
+    await router.stopAll();
     await sleep(50);
 
     // Reconnect with a fresh relay
-    relay = new Relay(
-      `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
-    );
-    await relay.connect();
+    const stack2 = await createRelayStack(orchestratorPort, foc);
+    relay = stack2.relay;
+    router = stack2.router;
     await sleep(100);
 
     // Verify reconnected
@@ -142,17 +142,16 @@ describe("Daemon reconnect timing", () => {
   });
 
   it("29. disconnect() stops reconnection attempts", async () => {
-    const { orchestratorPort, fakeOpenCodeUrl } = await setup();
+    const { orchestratorPort, fakeOpenCode: foc } = await setup();
 
-    relay = new Relay(
-      `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
-    );
-    await relay.connect();
+    const stack1 = await createRelayStack(orchestratorPort, foc);
+    relay = stack1.relay;
+    router = stack1.router;
     await sleep(50);
 
     // Call disconnect — this sets shouldReconnect = false
     await relay.disconnect();
+    await router.stopAll();
     await sleep(50);
 
     // Close the server

@@ -49,7 +49,7 @@ export function decidePush(
   properties?: Record<string, unknown>,
 ): PushDecision {
   switch (eventType) {
-    case "permission.created": {
+    case "mast.permission.created": {
       const description =
         (properties?.permission as { description?: string })?.description ??
         (properties?.permission as { command?: string })?.command ??
@@ -66,7 +66,7 @@ export function decidePush(
       };
     }
 
-    case "message.completed": {
+    case "mast.message.completed": {
       return {
         send: true,
         title: "Task complete",
@@ -78,7 +78,7 @@ export function decidePush(
       };
     }
 
-    case "message.part.updated": {
+    case "mast.message.part.updated": {
       return {
         send: true,
         title: "Agent working",
@@ -247,9 +247,9 @@ export class PushNotifier {
   }
 
   private eventCategory(eventType: string): string {
-    if (eventType === "permission.created") return "permission";
-    if (eventType === "message.completed") return "completed";
-    if (eventType === "message.part.updated") return "working";
+    if (eventType === "mast.permission.created") return "permission";
+    if (eventType === "mast.message.completed") return "completed";
+    if (eventType === "mast.message.part.updated") return "working";
     return "other";
   }
 

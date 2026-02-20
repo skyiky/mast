@@ -111,7 +111,7 @@ describe("SSE event streaming", () => {
 
       const event = msgs[0] as { type: string; event: { type: string; data: unknown } };
       assert.equal(event.type, "event");
-      assert.equal(event.event.type, "message.created");
+      assert.equal(event.event.type, "mast.message.created");
     } finally {
       await phone.close();
     }
@@ -137,9 +137,9 @@ describe("SSE event streaming", () => {
         type: string;
         event: { type: string; data: { order: number } };
       }>;
-      assert.equal(events[0].event.type, "message.created");
-      assert.equal(events[1].event.type, "message.part.updated");
-      assert.equal(events[2].event.type, "message.completed");
+      assert.equal(events[0].event.type, "mast.message.created");
+      assert.equal(events[1].event.type, "mast.message.part.updated");
+      assert.equal(events[2].event.type, "mast.message.completed");
     } finally {
       await phone.close();
     }
@@ -187,9 +187,9 @@ describe("SSE event streaming", () => {
       const eventTypes = msgs.map(
         (m) => (m as { event: { type: string } }).event.type,
       );
-      assert.ok(eventTypes.includes("message.created"), "Should have message.created");
-      assert.ok(eventTypes.includes("message.part.updated"), "Should have message.part.updated");
-      assert.ok(eventTypes.includes("message.completed"), "Should have message.completed");
+      assert.ok(eventTypes.includes("mast.message.created"), "Should have mast.message.created");
+      assert.ok(eventTypes.includes("mast.message.part.updated"), "Should have mast.message.part.updated");
+      assert.ok(eventTypes.includes("mast.message.completed"), "Should have mast.message.completed");
     } finally {
       await phone.close();
     }
@@ -263,6 +263,11 @@ describe("Phase 1 regression", () => {
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, fakeSessions);
+    // The adapter wraps each session with agentType + normalizes createdAt
+    const body = res.body as Array<{ id: string; agentType: string }>;
+    assert.ok(Array.isArray(body), "Response should be an array");
+    assert.equal(body.length, 1);
+    assert.equal(body[0].id, "sess-1");
+    assert.equal(body[0].agentType, "opencode");
   });
 });

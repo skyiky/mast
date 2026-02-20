@@ -1,19 +1,101 @@
 // Mast WSS Protocol Types
 // Shared types for the relay system:
-//   Orchestrator (cloud) <--WSS--> Daemon (dev machine) --> OpenCode (localhost:4096)
+//   Orchestrator (cloud) <--WSS--> Daemon (dev machine) --> Agent (OpenCode / Claude Code)
 
-// ---------------------------------------------------------------------------
-// Messages: Orchestrator -> Daemon
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Mast Event Types (agent-agnostic)
+// ===========================================================================
 
-export interface HttpRequest {
-  type: "http_request";
+export type MastEventType =
+  | "mast.message.created"
+  | "mast.message.part.created"
+  | "mast.message.part.updated"
+  | "mast.message.completed"
+  | "mast.permission.created"
+  | "mast.permission.updated"
+  | "mast.session.updated";
+
+// ===========================================================================
+// Semantic Commands: Orchestrator -> Daemon
+// ===========================================================================
+
+export interface ListSessionsCommand {
+  type: "list_sessions";
   requestId: string;
-  method: string;
-  path: string;
-  body?: unknown;
-  query?: Record<string, string>;
 }
+
+export interface CreateSessionCommand {
+  type: "create_session";
+  requestId: string;
+  agentType?: string; // "opencode" | "claude-code" — defaults to MAST_DEFAULT_AGENT
+}
+
+export interface SendPromptCommand {
+  type: "send_prompt";
+  requestId: string;
+  sessionId: string;
+  text: string;
+}
+
+export interface ApprovePermissionCommand {
+  type: "approve_permission";
+  requestId: string;
+  sessionId: string;
+  permissionId: string;
+}
+
+export interface DenyPermissionCommand {
+  type: "deny_permission";
+  requestId: string;
+  sessionId: string;
+  permissionId: string;
+}
+
+export interface GetMessagesCommand {
+  type: "get_messages";
+  requestId: string;
+  sessionId: string;
+}
+
+export interface GetDiffCommand {
+  type: "get_diff";
+  requestId: string;
+  sessionId: string;
+}
+
+export interface AbortSessionCommand {
+  type: "abort_session";
+  requestId: string;
+  sessionId: string;
+}
+
+export type OrchestratorCommand =
+  | ListSessionsCommand
+  | CreateSessionCommand
+  | SendPromptCommand
+  | ApprovePermissionCommand
+  | DenyPermissionCommand
+  | GetMessagesCommand
+  | GetDiffCommand
+  | AbortSessionCommand;
+
+// ===========================================================================
+// Semantic Responses: Daemon -> Orchestrator
+// ===========================================================================
+
+export interface CommandResult {
+  type: "command_result";
+  requestId: string;
+  status: "ok" | "error";
+  data?: unknown;
+  error?: string;
+}
+
+// ===========================================================================
+// Infrastructure Messages (unchanged from v1)
+// ===========================================================================
+
+// -- Orchestrator -> Daemon --
 
 export interface HeartbeatAck {
   type: "heartbeat_ack";
@@ -33,32 +115,25 @@ export interface PairResponse {
   error?: string;
 }
 
-export type OrchestratorMessage = HttpRequest | HeartbeatAck | SyncRequest | PairResponse;
-
-// ---------------------------------------------------------------------------
-// Messages: Daemon -> Orchestrator
-// ---------------------------------------------------------------------------
-
-export interface HttpResponse {
-  type: "http_response";
-  requestId: string;
-  status: number;
-  body: unknown;
-}
+// -- Daemon -> Orchestrator --
 
 export interface EventMessage {
   type: "event";
   event: {
-    type: string;
-    data: unknown;
+    type: string; // MastEventType (e.g. "mast.message.created")
+    sessionId: string;
+    data: Record<string, unknown>;
   };
   timestamp: string;
 }
 
 export interface DaemonStatus {
   type: "status";
-  opencodeReady: boolean;
-  opencodeVersion?: string;
+  agentReady: boolean;
+  agents: Array<{
+    type: string; // "opencode" | "claude-code"
+    ready: boolean;
+  }>;
 }
 
 export interface Heartbeat {
@@ -84,18 +159,58 @@ export interface PairRequest {
   pairingCode: string;
 }
 
-export type DaemonMessage = HttpResponse | EventMessage | DaemonStatus | Heartbeat | SyncResponse | PairRequest;
+// ===========================================================================
+// Union Types
+// ===========================================================================
 
-// ---------------------------------------------------------------------------
+/** All messages the orchestrator can send to the daemon. */
+export type OrchestratorMessage =
+  | OrchestratorCommand
+  | HeartbeatAck
+  | SyncRequest
+  | PairResponse;
+
+/** All messages the daemon can send to the orchestrator. */
+export type DaemonMessage =
+  | CommandResult
+  | EventMessage
+  | DaemonStatus
+  | Heartbeat
+  | SyncResponse
+  | PairRequest;
+
+// ===========================================================================
+// Legacy types (deprecated — will be removed after migration)
+// ===========================================================================
+
+/** @deprecated Use OrchestratorCommand instead. Kept for migration. */
+export interface HttpRequest {
+  type: "http_request";
+  requestId: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  query?: Record<string, string>;
+}
+
+/** @deprecated Use CommandResult instead. Kept for migration. */
+export interface HttpResponse {
+  type: "http_response";
+  requestId: string;
+  status: number;
+  body: unknown;
+}
+
+// ===========================================================================
 // Constants (Phase 1 — hardcoded, no real auth)
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 export const HARDCODED_DEVICE_KEY = "mast-dev-key-phase1";
 export const HARDCODED_API_TOKEN = "mast-api-token-phase1";
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // Helpers
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 export function generateRequestId(): string {
   return crypto.randomUUID();

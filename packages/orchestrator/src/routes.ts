@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { HARDCODED_API_TOKEN } from "@mast/shared";
+import { HARDCODED_API_TOKEN, generateRequestId } from "@mast/shared";
 import type { DaemonConnection } from "./daemon-connection.js";
 import type { PhoneConnectionManager } from "./phone-connections.js";
 import type { SessionStore } from "./session-store.js";
@@ -38,28 +38,23 @@ export function createApp(deps: RouteDeps): Hono {
     await next();
   });
 
-  // --- Helper: check daemon is connected, forward request ---
-  async function forward(
+  // --- Helper: send a semantic command and return HTTP-shaped result ---
+  async function sendCommand(
     daemonConn: DaemonConnection,
-    method: string,
-    path: string,
-    body?: unknown,
-    query?: Record<string, string>,
-  ) {
+    command: Parameters<DaemonConnection["sendCommand"]>[0],
+  ): Promise<{ status: number; body: unknown }> {
     if (!daemonConn.isConnected()) {
       return { status: 503, body: { error: "Daemon not connected" } };
     }
     try {
-      const result = await daemonConn.sendRequest(method, path, body, query);
-      // HTTP 204 (No Content) must not have a body — remap to 200 with { ok: true }
-      // to avoid protocol errors from reverse proxies (e.g., Azure Envoy).
-      if (result.status === 204) {
-        return { status: 200, body: { ok: true } };
+      const result = await daemonConn.sendCommand(command);
+      if (result.status === "ok") {
+        return { status: 200, body: result.data ?? { ok: true } };
       }
-      return result;
+      return { status: 500, body: { error: result.error ?? "Unknown error" } };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      console.error(`[orchestrator] forward error: ${message}`);
+      console.error(`[orchestrator] command error: ${message}`);
       return { status: 502, body: { error: message } };
     }
   }
@@ -69,7 +64,10 @@ export function createApp(deps: RouteDeps): Hono {
   // List sessions — try cache first when daemon is offline
   app.get("/sessions", async (c) => {
     if (daemonConnection.isConnected()) {
-      const result = await forward(daemonConnection, "GET", "/session");
+      const result = await sendCommand(daemonConnection, {
+        type: "list_sessions",
+        requestId: generateRequestId(),
+      });
       return c.json(result.body as object, result.status as 200);
     }
     // Daemon offline — serve from cache
@@ -82,13 +80,17 @@ export function createApp(deps: RouteDeps): Hono {
 
   // Create session
   app.post("/sessions", async (c) => {
-    let body: unknown;
+    let body: { agentType?: string } | undefined;
     try {
       body = await c.req.json();
     } catch {
       // no body is fine
     }
-    const result = await forward(daemonConnection, "POST", "/session", body);
+    const result = await sendCommand(daemonConnection, {
+      type: "create_session",
+      requestId: generateRequestId(),
+      agentType: body?.agentType,
+    });
     // Cache the session
     if (store && result.status === 200 && result.body) {
       const session = result.body as { id: string };
@@ -97,45 +99,49 @@ export function createApp(deps: RouteDeps): Hono {
     return c.json(result.body as object, result.status as 200);
   });
 
-  // Get session
+  // Get session (still served from cache or via list_sessions — no dedicated command)
   app.get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
-    if (daemonConnection.isConnected()) {
-      const result = await forward(daemonConnection, "GET", `/session/${id}`);
-      return c.json(result.body as object, result.status as 200);
-    }
     if (store) {
       const session = await store.getSession(id);
       if (session) return c.json(session, 200);
     }
-    return c.json({ error: "Daemon not connected" }, 503);
-  });
-
-  // Send message (sync)
-  app.post("/sessions/:id/message", async (c) => {
-    const id = c.req.param("id");
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      // no body is fine
+    // Fall back to listing all sessions and filtering
+    if (daemonConnection.isConnected()) {
+      const result = await sendCommand(daemonConnection, {
+        type: "list_sessions",
+        requestId: generateRequestId(),
+      });
+      if (result.status === 200 && Array.isArray(result.body)) {
+        const session = (result.body as Array<{ id: string }>).find(
+          (s) => s.id === id,
+        );
+        if (session) return c.json(session, 200);
+      }
     }
-    const result = await forward(daemonConnection, "POST", `/session/${id}/message`, body);
-    return c.json(result.body as object, result.status as 200);
+    return c.json({ error: "Session not found" }, 404);
   });
 
-  // Send prompt (async)
+  // Send prompt (async — fire-and-forget on daemon side)
   app.post("/sessions/:id/prompt", async (c) => {
     const id = c.req.param("id");
-    let body: unknown;
+    let body: { parts?: Array<{ type: string; text: string }> } | undefined;
     try {
       body = await c.req.json();
     } catch {
       // no body is fine
     }
+
+    // Extract text from the parts array
+    const text =
+      body?.parts
+        ?.filter((p) => p.type === "text")
+        .map((p) => p.text)
+        .join("\n") ?? "";
+
     // Cache the user message
-    if (store && body) {
-      const parts = (body as { parts?: unknown[] }).parts ?? [];
+    if (store && text) {
+      const parts = body?.parts ?? [];
       const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       store
         .addMessage({
@@ -147,7 +153,13 @@ export function createApp(deps: RouteDeps): Hono {
         .then(() => store.markMessageComplete(userMsgId))
         .catch(() => {});
     }
-    const result = await forward(daemonConnection, "POST", `/session/${id}/prompt_async`, body);
+
+    const result = await sendCommand(daemonConnection, {
+      type: "send_prompt",
+      requestId: generateRequestId(),
+      sessionId: id,
+      text,
+    });
     return c.json(result.body as object, result.status as 200);
   });
 
@@ -155,11 +167,11 @@ export function createApp(deps: RouteDeps): Hono {
   app.get("/sessions/:id/messages", async (c) => {
     const id = c.req.param("id");
     if (daemonConnection.isConnected()) {
-      const result = await forward(
-        daemonConnection,
-        "GET",
-        `/session/${id}/message`,
-      );
+      const result = await sendCommand(daemonConnection, {
+        type: "get_messages",
+        requestId: generateRequestId(),
+        sessionId: id,
+      });
       return c.json(result.body as object, result.status as 200);
     }
     // Daemon offline — serve from cache
@@ -173,29 +185,37 @@ export function createApp(deps: RouteDeps): Hono {
   // Get diff
   app.get("/sessions/:id/diff", async (c) => {
     const id = c.req.param("id");
-    const result = await forward(daemonConnection, "GET", `/session/${id}/diff`);
+    const result = await sendCommand(daemonConnection, {
+      type: "get_diff",
+      requestId: generateRequestId(),
+      sessionId: id,
+    });
     return c.json(result.body as object, result.status as 200);
   });
 
   // Abort session
   app.post("/sessions/:id/abort", async (c) => {
     const id = c.req.param("id");
-    const result = await forward(daemonConnection, "POST", `/session/${id}/abort`);
+    const result = await sendCommand(daemonConnection, {
+      type: "abort_session",
+      requestId: generateRequestId(),
+      sessionId: id,
+    });
     return c.json(result.body as object, result.status as 200);
   });
 
-  // --- Permission routes (Phase 3) ---
+  // --- Permission routes ---
 
   // Approve a permission
   app.post("/sessions/:id/approve/:pid", async (c) => {
     const id = c.req.param("id");
     const pid = c.req.param("pid");
-    const result = await forward(
-      daemonConnection,
-      "POST",
-      `/session/${id}/permissions/${pid}`,
-      { approve: true },
-    );
+    const result = await sendCommand(daemonConnection, {
+      type: "approve_permission",
+      requestId: generateRequestId(),
+      sessionId: id,
+      permissionId: pid,
+    });
     return c.json(result.body as object, result.status as 200);
   });
 
@@ -203,16 +223,16 @@ export function createApp(deps: RouteDeps): Hono {
   app.post("/sessions/:id/deny/:pid", async (c) => {
     const id = c.req.param("id");
     const pid = c.req.param("pid");
-    const result = await forward(
-      daemonConnection,
-      "POST",
-      `/session/${id}/permissions/${pid}`,
-      { approve: false },
-    );
+    const result = await sendCommand(daemonConnection, {
+      type: "deny_permission",
+      requestId: generateRequestId(),
+      sessionId: id,
+      permissionId: pid,
+    });
     return c.json(result.body as object, result.status as 200);
   });
 
-  // --- Push notification routes (Phase 3) ---
+  // --- Push notification routes ---
 
   // Register a push token
   app.post("/push/register", async (c) => {
@@ -232,9 +252,9 @@ export function createApp(deps: RouteDeps): Hono {
     return c.json({ ok: true }, 200);
   });
 
-  // --- Pairing routes (Phase 4) ---
+  // --- Pairing routes ---
 
-  // Verify a pairing code (phone submits code → gets device key)
+  // Verify a pairing code (phone submits code -> gets device key)
   app.post("/pair/verify", async (c) => {
     if (!pairingManager) {
       return c.json({ error: "Pairing not configured" }, 500);

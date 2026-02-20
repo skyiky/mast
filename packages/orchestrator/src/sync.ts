@@ -53,7 +53,8 @@ export async function processSyncResponse(
       const event: EventMessage = {
         type: "event",
         event: {
-          type: "message.created",
+          type: "mast.message.created",
+          sessionId: session.id,
           data: {
             sessionID: session.id,
             message: {

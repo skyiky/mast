@@ -12,7 +12,8 @@ import type { EventMessage } from "@mast/shared";
 export interface PhoneStatusMessage {
   type: "status";
   daemonConnected: boolean;
-  opencodeReady: boolean;
+  agentReady: boolean;
+  agents: Array<{ type: string; ready: boolean }>;
 }
 
 export class PhoneConnectionManager {

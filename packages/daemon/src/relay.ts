@@ -1,34 +1,55 @@
+/**
+ * SemanticRelay — WSS client that connects to the orchestrator and dispatches
+ * semantic commands to the AgentRouter.
+ *
+ * Replaces the old HTTP-relay pattern. Instead of proxying raw HTTP requests
+ * to OpenCode, it receives typed commands (list_sessions, send_prompt, etc.)
+ * and routes them through the AgentRouter to the appropriate adapter.
+ */
+
 import WebSocket from "ws";
 import {
-  type HttpRequest,
-  type HttpResponse,
-  type EventMessage,
+  type OrchestratorCommand,
   type OrchestratorMessage,
+  type CommandResult,
+  type EventMessage,
   type DaemonStatus,
   type Heartbeat,
   type SyncRequest,
   type SyncResponse,
   HARDCODED_DEVICE_KEY,
 } from "@mast/shared";
-import { SseSubscriber, type SseEvent } from "./sse-client.js";
-import { HealthMonitor } from "./health-monitor.js";
+import type { AgentRouter } from "./agent-router.js";
+import type { MastEvent } from "./agent-adapter.js";
 
-export class Relay {
+export class SemanticRelay {
   private ws: WebSocket | null = null;
-  private opencodeBaseUrl: string;
   private orchestratorUrl: string;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private reconnecting = false;
   private shouldReconnect = true;
   private reconnectAttempt = 0;
-  private sseSubscriber: SseSubscriber | null = null;
-  private healthMonitor: HealthMonitor | null = null;
   private _deviceKey: string;
+  private router: AgentRouter;
 
-  constructor(orchestratorUrl: string, opencodeBaseUrl: string, deviceKey?: string) {
+  constructor(orchestratorUrl: string, router: AgentRouter, deviceKey?: string) {
     this.orchestratorUrl = orchestratorUrl;
-    this.opencodeBaseUrl = opencodeBaseUrl;
+    this.router = router;
     this._deviceKey = deviceKey ?? HARDCODED_DEVICE_KEY;
+
+    // Subscribe to events from all adapters and forward to orchestrator
+    this.router.onEvent((event: MastEvent) => {
+      const msg: EventMessage = {
+        type: "event",
+        event: {
+          type: event.type,
+          sessionId: event.sessionId,
+          data: event.data,
+        },
+        timestamp: event.timestamp,
+      };
+      this.send(msg);
+    });
   }
 
   async connect(): Promise<void> {
@@ -43,18 +64,11 @@ export class Relay {
         this.reconnecting = false;
         this.reconnectAttempt = 0;
 
-        // Send initial status
-        const status: DaemonStatus = {
-          type: "status",
-          opencodeReady: true,
-        };
-        this.send(status);
+        // Send initial status with agent info
+        this.sendStatus();
 
         // Start heartbeat
         this.startHeartbeat();
-
-        // Start SSE subscription to OpenCode events
-        this.startSseSubscription();
 
         resolve();
       });
@@ -69,10 +83,9 @@ export class Relay {
 
       ws.on("close", (code, reason) => {
         console.log(
-          `WebSocket closed (code=${code}, reason=${reason.toString()})`
+          `WebSocket closed (code=${code}, reason=${reason.toString()})`,
         );
         this.stopHeartbeat();
-        this.stopSseSubscription();
         this.ws = null;
 
         if (this.shouldReconnect) {
@@ -82,7 +95,6 @@ export class Relay {
 
       ws.on("error", (err) => {
         console.error("WebSocket error:", err.message);
-        // If we haven't connected yet, reject the promise
         if (!this.ws) {
           reject(err);
         }
@@ -100,82 +112,157 @@ export class Relay {
     }
 
     switch (msg.type) {
-      case "http_request":
-        await this.relayRequest(msg);
+      // -- Semantic commands --
+      case "list_sessions":
+      case "create_session":
+      case "send_prompt":
+      case "approve_permission":
+      case "deny_permission":
+      case "get_messages":
+      case "get_diff":
+      case "abort_session":
+        await this.handleCommand(msg as OrchestratorCommand);
         break;
+
+      // -- Infrastructure --
       case "heartbeat_ack":
-        // Heartbeat acknowledged by orchestrator
         break;
+
       case "sync_request":
         await this.handleSyncRequest(msg as SyncRequest);
         break;
+
+      case "pair_response":
+        // Handled by daemon index.ts if pairing is active
+        break;
+
       default:
         console.warn("Unknown message type:", (msg as { type: string }).type);
     }
   }
 
-  private async relayRequest(request: HttpRequest): Promise<void> {
+  private async handleCommand(command: OrchestratorCommand): Promise<void> {
+    let result: CommandResult;
+
     try {
-      // Build URL
-      let url = `${this.opencodeBaseUrl}${request.path}`;
-      if (request.query && Object.keys(request.query).length > 0) {
-        const params = new URLSearchParams(request.query);
-        url += `?${params.toString()}`;
-      }
+      switch (command.type) {
+        case "list_sessions": {
+          const sessions = await this.router.listSessions();
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+            data: sessions,
+          };
+          break;
+        }
 
-      // Build fetch options
-      const fetchOptions: RequestInit = {
-        method: request.method,
-      };
+        case "create_session": {
+          const session = await this.router.createSession(command.agentType);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+            data: session,
+          };
+          break;
+        }
 
-      if (
-        request.body !== undefined &&
-        ["POST", "PUT", "PATCH"].includes(request.method.toUpperCase())
-      ) {
-        fetchOptions.body = JSON.stringify(request.body);
-        fetchOptions.headers = {
-          "Content-Type": "application/json",
-        };
-      }
+        case "send_prompt": {
+          // Fire-and-forget — response streams back via events
+          this.router.sendPrompt(command.sessionId, command.text);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+          };
+          break;
+        }
 
-      const res = await fetch(url, fetchOptions);
+        case "approve_permission": {
+          this.router.approvePermission(command.sessionId, command.permissionId);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+          };
+          break;
+        }
 
-      // Read response body
-      let body: unknown;
-      const text = await res.text();
-      if (text.length === 0) {
-        body = null;
-      } else {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          body = text;
+        case "deny_permission": {
+          this.router.denyPermission(command.sessionId, command.permissionId);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+          };
+          break;
+        }
+
+        case "get_messages": {
+          const messages = await this.router.getMessages(command.sessionId);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+            data: messages,
+          };
+          break;
+        }
+
+        case "get_diff": {
+          const diff = await this.router.getDiff(command.sessionId);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+            data: diff,
+          };
+          break;
+        }
+
+        case "abort_session": {
+          await this.router.abortSession(command.sessionId);
+          result = {
+            type: "command_result",
+            requestId: command.requestId,
+            status: "ok",
+          };
+          break;
+        }
+
+        default: {
+          result = {
+            type: "command_result",
+            requestId: (command as { requestId: string }).requestId,
+            status: "error",
+            error: `Unknown command type: ${(command as { type: string }).type}`,
+          };
         }
       }
-
-      const response: HttpResponse = {
-        type: "http_response",
-        requestId: request.requestId,
-        status: res.status,
-        body,
-      };
-      this.send(response);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error";
-      console.error(
-        `Relay error for ${request.method} ${request.path}:`,
-        errorMessage
-      );
-
-      const response: HttpResponse = {
-        type: "http_response",
-        requestId: request.requestId,
-        status: 502,
-        body: { error: "Bad Gateway", message: errorMessage },
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[relay] Command error (${command.type}):`, errorMessage);
+      result = {
+        type: "command_result",
+        requestId: command.requestId,
+        status: "error",
+        error: errorMessage,
       };
-      this.send(response);
     }
+
+    this.send(result);
+  }
+
+  /** Send the current agent status to the orchestrator. */
+  sendStatus(): void {
+    const agents = this.router.getAgents();
+    const status: DaemonStatus = {
+      type: "status",
+      agentReady: agents.some((a) => a.ready),
+      agents,
+    };
+    this.send(status);
   }
 
   private startHeartbeat(): void {
@@ -206,15 +293,14 @@ export class Relay {
     while (this.shouldReconnect) {
       const exponentialDelay = Math.min(
         baseDelay * Math.pow(2, this.reconnectAttempt),
-        maxDelay
+        maxDelay,
       );
-      // Add jitter: random 0-30% of delay
       const jitter = exponentialDelay * Math.random() * 0.3;
       const delay = exponentialDelay + jitter;
 
       this.reconnectAttempt++;
       console.log(
-        `Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempt})...`
+        `Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempt})...`,
       );
 
       await sleep(delay);
@@ -223,7 +309,7 @@ export class Relay {
 
       try {
         await this.connect();
-        return; // connected successfully
+        return;
       } catch {
         console.error("Reconnection attempt failed");
       }
@@ -232,79 +318,29 @@ export class Relay {
     this.reconnecting = false;
   }
 
-  private startSseSubscription(): void {
-    this.stopSseSubscription();
-    this.sseSubscriber = new SseSubscriber(this.opencodeBaseUrl);
-
-    // Fire and forget — the subscriber runs until stopped
-    this.sseSubscriber.subscribe((event: SseEvent) => {
-      const msg: EventMessage = {
-        type: "event",
-        event: {
-          type: event.type,
-          data: event.data,
-        },
-        timestamp: new Date().toISOString(),
-      };
-      this.send(msg);
-    }).catch((err) => {
-      console.error("[relay] SSE subscription error:", err);
-    });
-
-    console.log("[relay] SSE subscription started");
-  }
-
-  private stopSseSubscription(): void {
-    if (this.sseSubscriber) {
-      this.sseSubscriber.stop();
-      this.sseSubscriber = null;
-    }
-  }
-
   private async handleSyncRequest(request: SyncRequest): Promise<void> {
+    // Sync works by querying each adapter for messages in cached sessions.
+    // We iterate session IDs, determine which adapter owns them, and fetch messages.
     const sessions: SyncResponse["sessions"] = [];
 
     for (const sessionId of request.cachedSessionIds) {
       try {
-        const res = await fetch(
-          `${this.opencodeBaseUrl}/session/${sessionId}/message`,
-        );
-
-        if (res.status === 404) {
-          // Session deleted — skip (orchestrator will handle)
-          continue;
-        }
-
-        if (!res.ok) {
-          console.error(
-            `[relay] sync: failed to fetch messages for ${sessionId}: ${res.status}`,
-          );
-          continue;
-        }
-
-        const allMessages = (await res.json()) as Array<{
-          id: string;
-          role: string;
-          parts: unknown[];
-          completed?: boolean;
-          createdAt?: string;
-        }>;
+        // Use router.getMessages() which falls back to the default adapter
+        // when session ownership is unknown (e.g., after daemon restart with
+        // a fresh router that hasn't seen these sessions yet).
+        const messages = await this.router.getMessages(sessionId);
 
         // Filter to messages newer than lastEventTimestamp
-        const cutoff = new Date(request.lastEventTimestamp).getTime();
-        const missed = allMessages.filter((m) => {
-          if (!m.createdAt) return true; // if no timestamp, include it
-          return new Date(m.createdAt).getTime() > cutoff;
-        });
-
-        if (missed.length > 0) {
+        // Note: MastMessage doesn't have createdAt, so include all messages
+        // for now. The orchestrator already has older ones cached.
+        if (messages.length > 0) {
           sessions.push({
             id: sessionId,
-            messages: missed.map((m) => ({
+            messages: messages.map((m) => ({
               id: m.id,
               role: m.role,
               parts: m.parts ?? [],
-              completed: m.completed ?? true,
+              completed: m.completed,
             })),
           });
         }
@@ -323,41 +359,6 @@ export class Relay {
     this.send(response);
   }
 
-  /**
-   * Start OpenCode health monitoring.
-   * The health monitor periodically checks /global/health and fires callbacks
-   * on state changes.
-   */
-  startHealthMonitor(config?: {
-    checkIntervalMs?: number;
-    failureThreshold?: number;
-    onRecoveryNeeded?: () => Promise<void>;
-  }): HealthMonitor {
-    this.stopHealthMonitor();
-    this.healthMonitor = new HealthMonitor({
-      opencodeBaseUrl: this.opencodeBaseUrl,
-      checkIntervalMs: config?.checkIntervalMs,
-      failureThreshold: config?.failureThreshold,
-      onStateChange: (_state, ready) => {
-        const status: DaemonStatus = {
-          type: "status",
-          opencodeReady: ready,
-        };
-        this.send(status);
-      },
-      onRecoveryNeeded: config?.onRecoveryNeeded,
-    });
-    this.healthMonitor.start();
-    return this.healthMonitor;
-  }
-
-  stopHealthMonitor(): void {
-    if (this.healthMonitor) {
-      this.healthMonitor.stop();
-      this.healthMonitor = null;
-    }
-  }
-
   private send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -367,8 +368,6 @@ export class Relay {
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
     this.stopHeartbeat();
-    this.stopSseSubscription();
-    this.stopHealthMonitor();
 
     if (this.ws) {
       const ws = this.ws;
@@ -379,8 +378,6 @@ export class Relay {
       await new Promise<void>((resolve) => {
         ws.on("close", () => resolve());
         ws.close();
-        // Safety timeout — don't hang forever if close event never fires
-        // Use unref() so this timer doesn't prevent process exit
         const timer = setTimeout(resolve, 2000);
         if (typeof timer === "object" && "unref" in timer) timer.unref();
       });

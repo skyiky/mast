@@ -1,13 +1,15 @@
 /**
  * Test helpers: spin up the full relay stack for integration tests.
  *
- * Stack: Test runner (HTTP) -> Orchestrator (ephemeral port) -> Daemon Relay (WSS) -> Fake OpenCode (ephemeral port)
+ * Stack: Test runner (HTTP) -> Orchestrator (ephemeral port) -> Daemon SemanticRelay (WSS) -> OpenCodeAdapter -> Fake OpenCode (ephemeral port)
  * Phase 2: Test runner also connects as phone WSS client to receive streamed events.
  * Phase 3: Stack gains SessionStore + PushNotifier for cache and push tests.
  */
 
 import { startServer, type ServerHandle } from "../src/server.js";
-import { Relay } from "../../daemon/src/relay.js";
+import { AgentRouter } from "../../daemon/src/agent-router.js";
+import { OpenCodeAdapter } from "../../daemon/src/adapters/opencode-adapter.js";
+import { SemanticRelay } from "../../daemon/src/relay.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
 import { InMemorySessionStore, type SessionStore } from "../src/session-store.js";
 import {
@@ -22,7 +24,8 @@ import WebSocket from "ws";
 
 export interface TestStack {
   orchestrator: ServerHandle;
-  relay: Relay;
+  relay: SemanticRelay;
+  router: AgentRouter;
   fakeOpenCode: FakeOpenCode;
   /** Base URL for HTTP requests to orchestrator */
   baseUrl: string;
@@ -42,6 +45,34 @@ export interface Phase4TestStack extends Phase3TestStack {
 }
 
 /**
+ * Create a SemanticRelay connected to the orchestrator with an OpenCodeAdapter
+ * pointing at the fake OpenCode server. Returns the relay and router.
+ */
+export async function createRelayStack(
+  orchestratorPort: number,
+  fakeOpenCode: FakeOpenCode,
+): Promise<{ relay: SemanticRelay; router: AgentRouter }> {
+  const router = new AgentRouter();
+  const adapter = new OpenCodeAdapter({
+    port: fakeOpenCode.port,
+    skipProcess: true, // Don't start a real OpenCode process
+    healthCheckIntervalMs: 60_000, // Don't auto-check during tests
+  });
+  router.registerAdapter(adapter);
+
+  // Start the adapter (connects SSE subscriber to fake OpenCode)
+  await adapter.start();
+
+  const relay = new SemanticRelay(
+    `ws://localhost:${orchestratorPort}`,
+    router,
+  );
+  await relay.connect();
+
+  return { relay, router };
+}
+
+/**
  * Start the full stack: fake OpenCode, orchestrator, daemon relay.
  * All on ephemeral ports.
  */
@@ -53,11 +84,7 @@ export async function startStack(): Promise<TestStack> {
   const orchestrator = await startServer(0);
 
   // 3. Start daemon relay connecting to orchestrator, pointing at fake OpenCode
-  const relay = new Relay(
-    `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
-  );
-  await relay.connect();
+  const { relay, router } = await createRelayStack(orchestrator.port, fakeOpenCode);
 
   // Small delay to let the orchestrator register the daemon connection
   // and daemon's SSE subscriber to connect to fake OpenCode
@@ -68,10 +95,12 @@ export async function startStack(): Promise<TestStack> {
   const result: TestStack = {
     orchestrator,
     relay,
+    router,
     fakeOpenCode,
     baseUrl,
     async close() {
       await result.relay.disconnect();
+      await result.router.stopAll();
       await orchestrator.close();
       await fakeOpenCode.close();
     },
@@ -112,11 +141,7 @@ export async function startPhase3Stack(opts?: {
   phoneConnectedFn = () => orchestrator.phoneConnections.count() > 0;
 
   // 4. Start daemon relay
-  const relay = new Relay(
-    `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
-  );
-  await relay.connect();
+  const { relay, router } = await createRelayStack(orchestrator.port, fakeOpenCode);
 
   await sleep(100);
 
@@ -125,6 +150,7 @@ export async function startPhase3Stack(opts?: {
   const result: Phase3TestStack = {
     orchestrator,
     relay,
+    router,
     fakeOpenCode,
     fakeExpoPush,
     store,
@@ -134,6 +160,7 @@ export async function startPhase3Stack(opts?: {
     async close() {
       deduplicator.reset();
       await result.relay.disconnect();
+      await result.router.stopAll();
       await orchestrator.close();
       await fakeOpenCode.close();
       await fakeExpoPush.close();
@@ -276,13 +303,27 @@ export async function startPhase4Stack(opts?: {
   phoneConnectedFn = () => orchestrator.phoneConnections.count() > 0;
 
   // 4. Start daemon relay (unless skipped)
-  const relay = new Relay(
-    `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
-  );
+  let relay: SemanticRelay;
+  let router: AgentRouter;
+
   if (!opts?.skipDaemonConnect) {
-    await relay.connect();
+    const stack = await createRelayStack(orchestrator.port, fakeOpenCode);
+    relay = stack.relay;
+    router = stack.router;
     await sleep(100);
+  } else {
+    // Create relay and router but don't connect
+    router = new AgentRouter();
+    const adapter = new OpenCodeAdapter({
+      port: fakeOpenCode.port,
+      skipProcess: true,
+      healthCheckIntervalMs: 60_000,
+    });
+    router.registerAdapter(adapter);
+    relay = new SemanticRelay(
+      `ws://localhost:${orchestrator.port}`,
+      router,
+    );
   }
 
   const baseUrl = `http://localhost:${orchestrator.port}`;
@@ -290,6 +331,7 @@ export async function startPhase4Stack(opts?: {
   const result: Phase4TestStack = {
     orchestrator,
     relay,
+    router,
     fakeOpenCode,
     fakeExpoPush,
     store,
@@ -300,6 +342,7 @@ export async function startPhase4Stack(opts?: {
     async close() {
       deduplicator.reset();
       await result.relay.disconnect();
+      await result.router.stopAll();
       await orchestrator.close();
       await fakeOpenCode.close();
       await fakeExpoPush.close();

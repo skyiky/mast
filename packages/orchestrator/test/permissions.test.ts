@@ -50,8 +50,13 @@ describe("Permission approval flow", () => {
       "/sessions/sess1/approve/perm1",
     );
 
+    // approve_permission is fire-and-forget in the semantic protocol.
+    // The command returns { ok: true } immediately; the actual OpenCode response is ignored.
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, { id: "perm1", status: "approved" });
+    assert.deepEqual(res.body, { ok: true });
+
+    // Wait briefly for the fire-and-forget fetch to complete
+    await sleep(100);
 
     const recorded = stack.fakeOpenCode.requests();
     assert.ok(
@@ -75,8 +80,12 @@ describe("Permission approval flow", () => {
       "/sessions/sess1/deny/perm1",
     );
 
+    // deny_permission is fire-and-forget in the semantic protocol.
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, { id: "perm1", status: "denied" });
+    assert.deepEqual(res.body, { ok: true });
+
+    // Wait briefly for the fire-and-forget fetch to complete
+    await sleep(100);
 
     const recorded = stack.fakeOpenCode.requests();
     assert.ok(
@@ -202,12 +211,12 @@ describe("Permission approval flow", () => {
         (m) => (m as { event: { type: string } }).event.type,
       );
       assert.ok(
-        eventTypes.includes("permission.created"),
-        "Phone should have received permission.created",
+        eventTypes.includes("mast.permission.created"),
+        "Phone should have received mast.permission.created",
       );
       assert.ok(
-        eventTypes.includes("permission.updated"),
-        "Phone should have received permission.updated",
+        eventTypes.includes("mast.permission.updated"),
+        "Phone should have received mast.permission.updated",
       );
     } finally {
       await phone.close();
@@ -274,18 +283,18 @@ describe("Permission approval flow", () => {
         (m) => (m as { event: { type: string } }).event.type,
       );
       assert.ok(
-        eventTypes.includes("permission.created"),
-        "Phone should have received permission.created",
+        eventTypes.includes("mast.permission.created"),
+        "Phone should have received mast.permission.created",
       );
       assert.ok(
-        eventTypes.includes("permission.updated"),
-        "Phone should have received permission.updated",
+        eventTypes.includes("mast.permission.updated"),
+        "Phone should have received mast.permission.updated",
       );
 
       // Verify the updated event carries "denied" status
       const updatedEvent = msgs.find(
         (m) =>
-          (m as { event: { type: string } }).event.type === "permission.updated",
+          (m as { event: { type: string } }).event.type === "mast.permission.updated",
       ) as { event: { type: string; data: { properties: { permission: { status: string } } } } };
       assert.ok(updatedEvent, "Should have permission.updated event");
     } finally {

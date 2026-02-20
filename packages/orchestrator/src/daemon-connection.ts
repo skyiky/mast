@@ -1,7 +1,7 @@
 import type { WebSocket as WsWebSocket } from "ws";
 import {
-  type HttpRequest,
-  type HttpResponse,
+  type OrchestratorCommand,
+  type CommandResult,
   type EventMessage,
   type DaemonMessage,
   type DaemonStatus,
@@ -15,7 +15,7 @@ import {
 const REQUEST_TIMEOUT_MS = 120_000;
 
 interface PendingRequest {
-  resolve: (value: { status: number; body: unknown }) => void;
+  resolve: (value: { status: "ok" | "error"; data?: unknown; error?: string }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -63,37 +63,27 @@ export class DaemonConnection {
     }
   }
 
-  sendRequest(
-    method: string,
-    path: string,
-    body?: unknown,
-    query?: Record<string, string>,
-  ): Promise<{ status: number; body: unknown }> {
+  /**
+   * Send a semantic command to the daemon and wait for the result.
+   * The command must include a requestId for correlation.
+   */
+  sendCommand(
+    command: OrchestratorCommand,
+  ): Promise<{ status: "ok" | "error"; data?: unknown; error?: string }> {
     return new Promise((resolve, reject) => {
       if (!this.ws) {
         reject(new Error("Daemon not connected"));
         return;
       }
 
-      const requestId = generateRequestId();
-
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(new Error(`Request ${requestId} timed out after ${REQUEST_TIMEOUT_MS}ms`));
+        this.pendingRequests.delete(command.requestId);
+        reject(new Error(`Request ${command.requestId} timed out after ${REQUEST_TIMEOUT_MS}ms`));
       }, REQUEST_TIMEOUT_MS);
 
-      this.pendingRequests.set(requestId, { resolve, reject, timer });
+      this.pendingRequests.set(command.requestId, { resolve, reject, timer });
 
-      const msg: HttpRequest = {
-        type: "http_request",
-        requestId,
-        method,
-        path,
-        ...(body !== undefined && { body }),
-        ...(query !== undefined && Object.keys(query).length > 0 && { query }),
-      };
-
-      this.ws.send(JSON.stringify(msg));
+      this.ws.send(JSON.stringify(command));
     });
   }
 
@@ -107,16 +97,20 @@ export class DaemonConnection {
     }
 
     switch (msg.type) {
-      case "http_response": {
-        const response = msg as HttpResponse;
-        const pending = this.pendingRequests.get(response.requestId);
+      case "command_result": {
+        const result = msg as CommandResult;
+        const pending = this.pendingRequests.get(result.requestId);
         if (pending) {
           clearTimeout(pending.timer);
-          this.pendingRequests.delete(response.requestId);
-          pending.resolve({ status: response.status, body: response.body });
+          this.pendingRequests.delete(result.requestId);
+          pending.resolve({
+            status: result.status,
+            data: result.data,
+            error: result.error,
+          });
         } else {
           console.warn(
-            `[orchestrator] received response for unknown request: ${response.requestId}`,
+            `[orchestrator] received result for unknown request: ${result.requestId}`,
           );
         }
         break;
@@ -135,9 +129,11 @@ export class DaemonConnection {
 
       case "status": {
         const statusMsg = msg as DaemonStatus;
+        const agentSummary = statusMsg.agents
+          .map((a) => `${a.type}=${a.ready ? "ready" : "not ready"}`)
+          .join(", ");
         console.log(
-          `[orchestrator] daemon status: opencodeReady=${statusMsg.opencodeReady}` +
-            (statusMsg.opencodeVersion ? ` version=${statusMsg.opencodeVersion}` : ""),
+          `[orchestrator] daemon status: agentReady=${statusMsg.agentReady} (${agentSummary})`,
         );
         if (this.onStatus) {
           this.onStatus(statusMsg);

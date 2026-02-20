@@ -2,22 +2,27 @@
  * Mast Daemon — Entry point.
  *
  * Startup flow:
- * 1. Start OpenCode process (unless MAST_SKIP_OPENCODE=1)
- * 2. Load device key from ~/.mast/device-key.json
- * 3. If key exists → connect to orchestrator as authenticated daemon
- * 4. If no key → run pairing flow:
+ * 1. Create AgentRouter and register adapters based on config:
+ *    - OpenCode adapter if MAST_SKIP_OPENCODE !== "1"
+ *    - Claude Code adapter if ANTHROPIC_API_KEY is set
+ * 2. Start all adapters (launches OpenCode process, loads SDK, etc.)
+ * 3. Load device key from ~/.mast/device-key.json
+ * 4. If key exists → connect to orchestrator as authenticated daemon
+ * 5. If no key → run pairing flow:
  *    a. Connect to orchestrator with token=pairing
  *    b. Generate and display 6-digit pairing code
  *    c. Wait for pair_response with device key
  *    d. Save key, disconnect pairing socket, reconnect as authenticated
- * 5. Start health monitoring with auto-restart on crash
+ * 6. Connect SemanticRelay to orchestrator
  */
 
 import WebSocket from "ws";
 import QRCode from "qrcode";
 import { generatePairingCode, type PairRequest, type PairResponse } from "@mast/shared";
-import { OpenCodeProcess } from "./opencode-process.js";
-import { Relay } from "./relay.js";
+import { AgentRouter } from "./agent-router.js";
+import { OpenCodeAdapter } from "./adapters/opencode-adapter.js";
+import { ClaudeCodeAdapter } from "./adapters/claude-code-adapter.js";
+import { SemanticRelay } from "./relay.js";
 import { KeyStore } from "./key-store.js";
 
 const ORCHESTRATOR_URL =
@@ -27,25 +32,44 @@ const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT ?? "4096", 10);
 async function main() {
   console.log("Mast daemon starting...");
 
-  // --- Start OpenCode ---
-  const opencode = new OpenCodeProcess({
-    port: OPENCODE_PORT,
-    onCrash: (code, signal) => {
-      console.error(
-        `[daemon] OpenCode crashed (code=${code}, signal=${signal}), will auto-restart via health monitor`
-      );
-    },
-  });
+  // --- Set up AgentRouter and register adapters ---
+  const router = new AgentRouter();
 
-  if (process.env.MAST_SKIP_OPENCODE !== "1") {
-    console.log("Starting opencode serve...");
-    await opencode.start();
-    console.log("Waiting for OpenCode to be ready...");
-    await opencode.waitForReady();
-    console.log("OpenCode is ready");
+  const skipOpenCode = process.env.MAST_SKIP_OPENCODE === "1";
+  const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+
+  if (!skipOpenCode) {
+    console.log("[daemon] Registering OpenCode adapter (port=%d)", OPENCODE_PORT);
+    const openCodeAdapter = new OpenCodeAdapter({
+      port: OPENCODE_PORT,
+      onCrash: (code, signal) => {
+        console.error(
+          `[daemon] OpenCode crashed (code=${code}, signal=${signal}), will auto-restart via health monitor`
+        );
+      },
+    });
+    router.registerAdapter(openCodeAdapter);
   } else {
-    console.log("Skipping opencode start (MAST_SKIP_OPENCODE=1)");
+    console.log("[daemon] Skipping OpenCode adapter (MAST_SKIP_OPENCODE=1)");
   }
+
+  if (hasAnthropicKey) {
+    console.log("[daemon] Registering Claude Code adapter");
+    const claudeAdapter = new ClaudeCodeAdapter();
+    router.registerAdapter(claudeAdapter);
+  } else {
+    console.log("[daemon] Skipping Claude Code adapter (no ANTHROPIC_API_KEY)");
+  }
+
+  if (router.getAdapterTypes().length === 0) {
+    console.error("[daemon] No adapters registered. Set MAST_SKIP_OPENCODE=0 or provide ANTHROPIC_API_KEY.");
+    process.exit(1);
+  }
+
+  // --- Start all adapters ---
+  console.log("[daemon] Starting adapters...");
+  await router.startAll();
+  console.log("[daemon] Adapters ready:", router.getAdapterTypes().join(", "));
 
   // --- Load or acquire device key ---
   const keyStore = new KeyStore();
@@ -61,29 +85,15 @@ async function main() {
   }
 
   // --- Connect to orchestrator ---
-  const relay = new Relay(ORCHESTRATOR_URL, opencode.baseUrl, deviceKey);
+  const relay = new SemanticRelay(ORCHESTRATOR_URL, router, deviceKey);
   console.log(`[daemon] Connecting to orchestrator at ${ORCHESTRATOR_URL}...`);
   await relay.connect();
-
-  // --- Start health monitoring with auto-restart ---
-  relay.startHealthMonitor({
-    onRecoveryNeeded: async () => {
-      console.log("[daemon] Health monitor triggered recovery — restarting OpenCode");
-      try {
-        await opencode.restart();
-      } catch (err) {
-        console.error("[daemon] Failed to restart OpenCode:", err);
-      }
-    },
-  });
 
   // --- Handle shutdown ---
   const shutdown = async () => {
     console.log("[daemon] Shutting down...");
     await relay.disconnect();
-    if (process.env.MAST_SKIP_OPENCODE !== "1") {
-      await opencode.stop();
-    }
+    await router.stopAll();
     process.exit(0);
   };
 

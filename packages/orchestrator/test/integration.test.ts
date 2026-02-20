@@ -7,9 +7,8 @@
 
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { startStack, apiRequest, unauthRequest, sleep, type TestStack } from "./helpers.js";
+import { startStack, createRelayStack, apiRequest, unauthRequest, sleep, type TestStack } from "./helpers.js";
 import { startServer, type ServerHandle } from "../src/server.js";
-import { Relay } from "../../daemon/src/relay.js";
 
 // =============================================================================
 // Test Suite 1: Health & Auth (need isolated stack for daemon-not-connected test)
@@ -78,40 +77,54 @@ describe("Relay chain", () => {
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, fakeSessions);
+    // The adapter wraps each session with agentType + normalizes createdAt
+    const body = res.body as Array<{ id: string; agentType: string; createdAt: string }>;
+    assert.ok(Array.isArray(body), "Response should be an array");
+    assert.equal(body.length, 1);
+    assert.equal(body[0].id, "sess-1");
+    assert.equal(body[0].agentType, "opencode");
+    assert.equal(body[0].createdAt, "2026-01-01");
   });
 
-  it("5. POST /sessions with body forwards body to fake OpenCode", async () => {
+  it("5. POST /sessions creates session on fake OpenCode", async () => {
     stack.fakeOpenCode.handle("POST", "/session", {
       status: 200,
       body: { id: "new-sess", createdAt: "2026-01-01" },
     });
 
-    const reqBody = { model: "gpt-4" };
-    const res = await apiRequest(stack.baseUrl, "POST", "/sessions", reqBody);
+    // The semantic create_session command does not forward arbitrary body fields.
+    // It only sends agentType (optional). The adapter calls POST /session directly.
+    const res = await apiRequest(stack.baseUrl, "POST", "/sessions", { agentType: "opencode" });
     assert.equal(res.status, 200);
 
-    // Verify the fake OpenCode received the body
+    // Verify the response has the adapter-wrapped format
+    const body = res.body as { id: string; agentType: string; createdAt: string };
+    assert.equal(body.id, "new-sess");
+    assert.equal(body.agentType, "opencode");
+    assert.equal(body.createdAt, "2026-01-01");
+
+    // Verify the fake OpenCode received the POST
     const recorded = stack.fakeOpenCode.requests();
     const postReq = recorded.find((r) => r.method === "POST" && r.path === "/session");
     assert.ok(postReq, "POST /session should have been recorded");
-    assert.deepEqual(postReq.body, reqBody);
   });
 
   it("6. GET /sessions/:id with path params routes correctly", async () => {
-    const sessionData = { id: "sess-42", messages: [] };
-    stack.fakeOpenCode.handle("GET", "/session/sess-42", {
+    // The semantic protocol serves GET /sessions/:id from the store first,
+    // then falls back to list_sessions (GET /session on OpenCode) and filters.
+    // Register a handler that returns the session in a list.
+    stack.fakeOpenCode.handle("GET", "/session", {
       status: 200,
-      body: sessionData,
+      body: [{ id: "sess-42", title: "Test session" }],
     });
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions/sess-42");
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, sessionData);
 
-    // Verify the right path was hit
-    const recorded = stack.fakeOpenCode.requests();
-    assert.ok(recorded.some((r) => r.path === "/session/sess-42"));
+    // The response comes from list_sessions, which wraps with agentType
+    const body = res.body as { id: string; agentType: string };
+    assert.equal(body.id, "sess-42");
+    assert.equal(body.agentType, "opencode");
   });
 
   it("7. POST /sessions/:id/prompt returns 200 for prompt_async relay", async () => {
@@ -128,15 +141,18 @@ describe("Relay chain", () => {
     assert.equal(res.status, 200);
   });
 
-  it("11. fake OpenCode returning 500 is relayed as 500", async () => {
+  it("11. fake OpenCode returning 500 results in empty session list", async () => {
     stack.fakeOpenCode.handle("GET", "/session", {
       status: 500,
       body: { error: "Internal Server Error" },
     });
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
-    assert.equal(res.status, 500);
-    assert.deepEqual(res.body, { error: "Internal Server Error" });
+    // The AgentRouter uses Promise.allSettled for listSessions(), so a 500 from
+    // one adapter results in that adapter's sessions being omitted (empty array).
+    // This is by design — other adapters could still return their sessions.
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, []);
   });
 });
 
@@ -179,11 +195,10 @@ describe("Disconnect and reconnect", () => {
       assert.equal(body.daemonConnected, false);
 
       // Reconnect a new relay
-      const relay2 = new Relay(
-        `ws://localhost:${stack.orchestrator.port}`,
-        stack.fakeOpenCode.baseUrl,
+      const { relay: relay2, router: router2 } = await createRelayStack(
+        stack.orchestrator.port,
+        stack.fakeOpenCode,
       );
-      await relay2.connect();
       await sleep(50);
 
       // Should be connected again
@@ -192,6 +207,7 @@ describe("Disconnect and reconnect", () => {
       assert.equal(body.daemonConnected, true);
 
       await relay2.disconnect();
+      await router2.stopAll();
     } finally {
       await stack.close();
     }
@@ -218,7 +234,7 @@ describe("Timeout handling", () => {
     await new Promise<void>((resolve, reject) => {
       ws.on("open", () => {
         // Send status to register as connected
-        ws.send(JSON.stringify({ type: "status", opencodeReady: true }));
+        ws.send(JSON.stringify({ type: "status", agentReady: true, agents: [{ type: "opencode", ready: true }] }));
         resolve();
       });
       ws.on("error", reject);
@@ -269,7 +285,7 @@ describe("Timeout handling", () => {
 describe("Heartbeat", () => {
   it("12. heartbeat is sent by daemon and acknowledged by orchestrator", async () => {
     // Start a stack but with a very short heartbeat interval
-    // The Relay class uses a 30s heartbeat which is too long for tests.
+    // The SemanticRelay class uses a 30s heartbeat which is too long for tests.
     // Instead, we'll manually test the heartbeat message handling.
 
     const orchestrator = await startServer(0);

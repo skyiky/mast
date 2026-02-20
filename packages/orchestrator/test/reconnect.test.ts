@@ -14,9 +14,9 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import WebSocket from "ws";
-import { Relay } from "../../daemon/src/relay.js";
 import {
   startPhase4Stack,
+  createRelayStack,
   connectPhone,
   apiRequest,
   sleep,
@@ -77,11 +77,10 @@ describe("Reconnection & cache sync", () => {
     await sleep(100);
 
     // Reconnect — the daemon should receive a sync_request and respond
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(200);
 
     // The daemon should have queried OpenCode for the cached session
@@ -92,6 +91,7 @@ describe("Reconnection & cache sync", () => {
     assert.ok(syncQuery, "daemon should query OpenCode for cached session messages during sync");
 
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("11. sync_request includes lastEventTimestamp matching the last event received", async () => {
@@ -138,7 +138,7 @@ describe("Reconnection & cache sync", () => {
     });
 
     // Send status (not strictly needed for sync, but keeps protocol correct)
-    ws.send(JSON.stringify({ type: "status", opencodeReady: true }));
+    ws.send(JSON.stringify({ type: "status", agentReady: true, agents: [{ type: "opencode", ready: true }] }));
     await sleep(200);
 
     // Look for sync_request in received messages
@@ -186,11 +186,10 @@ describe("Reconnection & cache sync", () => {
     await stack.relay.disconnect();
     await sleep(100);
 
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(300);
 
     // The missed message should now be in the store
@@ -200,6 +199,7 @@ describe("Reconnection & cache sync", () => {
     assert.equal(missed.role, "assistant");
 
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("13. missed messages from sync_response appear in session store after processing", async () => {
@@ -239,11 +239,10 @@ describe("Reconnection & cache sync", () => {
     await stack.relay.disconnect();
     await sleep(100);
 
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(300);
 
     const messages = await stack.store.getMessages("backfill-sess");
@@ -255,6 +254,7 @@ describe("Reconnection & cache sync", () => {
     assert.equal(msg1.streaming, false); // completed = true → streaming = false
 
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("14. missed messages from sync_response are broadcast to connected phone clients", async () => {
@@ -290,11 +290,10 @@ describe("Reconnection & cache sync", () => {
 
     const phone = await connectPhone(stack.orchestrator.port);
 
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(300);
 
     // Phone should have received the backfilled event
@@ -306,6 +305,7 @@ describe("Reconnection & cache sync", () => {
 
     await phone.close();
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("15. reconnect with empty cache → sync_request has empty cachedSessionIds", async () => {
@@ -330,7 +330,7 @@ describe("Reconnection & cache sync", () => {
       ws.on("error", reject);
     });
 
-    ws.send(JSON.stringify({ type: "status", opencodeReady: true }));
+    ws.send(JSON.stringify({ type: "status", agentReady: true, agents: [{ type: "opencode", ready: true }] }));
     await sleep(200);
 
     const syncReq = receivedMessages.find((m) => m.type === "sync_request");
@@ -366,11 +366,10 @@ describe("Reconnection & cache sync", () => {
     await stack.relay.disconnect();
     await sleep(100);
 
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(300);
 
     // No new messages should have been added
@@ -378,6 +377,7 @@ describe("Reconnection & cache sync", () => {
     assert.equal(messagesAfter.length, countBefore);
 
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("17. session deleted in OpenCode during disconnect → no crash, session kept in store", async () => {
@@ -402,11 +402,10 @@ describe("Reconnection & cache sync", () => {
     await stack.relay.disconnect();
     await sleep(100);
 
-    const relay2 = new Relay(
-      `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+    const { relay: relay2, router: router2 } = await createRelayStack(
+      stack.orchestrator.port,
+      stack.fakeOpenCode,
     );
-    await relay2.connect();
     await sleep(300);
 
     // Should not crash — session still in store (not removed by sync)
@@ -414,6 +413,7 @@ describe("Reconnection & cache sync", () => {
     assert.ok(sessions.some((s) => s.id === "deleted-sess"));
 
     await relay2.disconnect();
+    await router2.stopAll();
   });
 
   it("18. multiple rapid disconnects/reconnects → sync completes without errors", { timeout: 15000 }, async () => {
@@ -436,17 +436,18 @@ describe("Reconnection & cache sync", () => {
     // Rapid disconnect/reconnect cycles
     for (let i = 0; i < 3; i++) {
       await stack.relay.disconnect();
+      await stack.router.stopAll();
       await sleep(50);
 
-      const relay = new Relay(
-        `ws://localhost:${stack.orchestrator.port}`,
-        stack.fakeOpenCode.baseUrl,
+      const { relay, router } = await createRelayStack(
+        stack.orchestrator.port,
+        stack.fakeOpenCode,
       );
-      await relay.connect();
       await sleep(200); // give sync time to complete
 
-      // Store the latest relay for next iteration's disconnect
+      // Store the latest relay/router for next iteration's disconnect
       stack.relay = relay;
+      stack.router = router;
     }
 
     // Verify we're still healthy
