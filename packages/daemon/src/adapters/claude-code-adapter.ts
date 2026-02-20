@@ -23,7 +23,7 @@ import { BaseAdapter, type MastEvent, type MastSession, type MastMessage } from 
 // during development. The actual SDK provides the real types at runtime.
 // ---------------------------------------------------------------------------
 
-interface QueryOptions {
+export interface QueryOptions {
   prompt: string;
   options?: {
     allowedTools?: string[];
@@ -45,7 +45,7 @@ type HookCallback = (
   context: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
 
-interface SDKMessage {
+export interface SDKMessage {
   type: string;
   subtype?: string;
   session_id?: string;
@@ -84,6 +84,12 @@ export interface ClaudeCodeAdapterConfig {
   allowedTools?: string[];
   /** Working directory for the agent. Defaults to cwd. */
   workingDirectory?: string;
+  /**
+   * Override the SDK query function (for testing).
+   * When set, the adapter skips loading the real SDK and uses this instead.
+   * Also skips the ANTHROPIC_API_KEY check.
+   */
+  _queryFn?: (opts: QueryOptions) => AsyncIterable<SDKMessage>;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,13 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   async start(): Promise<void> {
     if (this._started) return;
 
+    if (this.config._queryFn) {
+      // Test mode — skip API key check and SDK loading
+      this._started = true;
+      console.log("[claude-code-adapter] Started (test mode)");
+      return;
+    }
+
     // Validate that the API key is available
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(
@@ -160,6 +173,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   async healthCheck(): Promise<boolean> {
+    if (this.config._queryFn) return this._started;
     return this._started && !!process.env.ANTHROPIC_API_KEY;
   }
 
@@ -265,7 +279,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   // -- Internal: Run a query --
 
   private async runQuery(sessionId: string, text: string): Promise<void> {
-    const queryFn = await loadSDK();
+    const queryFn = this.config._queryFn ?? await loadSDK();
     if (!queryFn) throw new Error("SDK not loaded");
 
     const session = this.sessions.get(sessionId);
