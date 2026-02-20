@@ -7,12 +7,13 @@ import {
   View,
   Text,
   TextInput,
-  FlatList,
-  TouchableOpacity,
+  Pressable,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  StyleSheet,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,14 +25,32 @@ import { fonts } from "../../src/lib/themes";
 import ConnectionBanner from "../../src/components/ConnectionBanner";
 import MessageBubble from "../../src/components/MessageBubble";
 import PermissionCard from "../../src/components/PermissionCard";
+import AnimatedPressable from "../../src/components/AnimatedPressable";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+type RenderItem =
+  | { type: "message"; item: ChatMessage }
+  | { type: "permission"; item: ReturnType<typeof useSessionStore.getState>["permissions"][0] };
+
+// Stable separator component — extracted to avoid re-creating on every render
+const ItemSeparator = React.memo(function ItemSeparator({ borderColor }: { borderColor: string }) {
+  return <View style={[separatorStyles.line, { backgroundColor: borderColor }]} />;
+});
+
+const separatorStyles = StyleSheet.create({
+  line: {
+    height: 1,
+    marginHorizontal: 12,
+    marginVertical: 2,
+  },
+});
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const api = useApi();
-  const flatListRef = useRef<FlatList>(null);
+  const flashListRef = useRef<FlashList<RenderItem>>(null);
   const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
@@ -60,20 +79,15 @@ export default function ChatScreen() {
     navigation.setOptions({
       title: session?.title || (id ? `${id.slice(0, 8)}` : "session"),
       headerRight: () => (
-        <TouchableOpacity
+        <Pressable
           onPress={toggleVerbosity}
-          style={{ marginRight: 8, height: 32, width: 48, alignItems: "center", justifyContent: "center" }}
+          hitSlop={8}
+          style={styles.verbosityBtn}
         >
-          <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 12,
-              color: colors.accent,
-            }}
-          >
+          <Text style={[styles.verbosityText, { color: colors.accent }]}>
             {verbosity === "standard" ? "[full]" : "[std]"}
           </Text>
-        </TouchableOpacity>
+        </Pressable>
       ),
     });
   }, [navigation, id, session?.title, verbosity, toggleVerbosity, colors]);
@@ -134,20 +148,12 @@ export default function ChatScreen() {
     })();
   }, [id]);
 
-  // Auto-scroll on new messages / streaming content
-  const lastMsg = messages[messages.length - 1];
-  const lastContentLen = lastMsg?.parts.reduce(
-    (sum, p) => sum + (p.content?.length ?? 0),
-    0,
-  ) ?? 0;
-
-  useEffect(() => {
+  // Auto-scroll on new messages / streaming content via onContentSizeChange
+  const handleContentSizeChange = useCallback(() => {
     if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      flashListRef.current?.scrollToEnd({ animated: true });
     }
-  }, [messages.length, lastContentLen]);
+  }, [messages.length]);
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
@@ -201,99 +207,99 @@ export default function ChatScreen() {
   );
 
   // Build render list
-  const renderData: Array<
-    | { type: "message"; item: ChatMessage }
-    | { type: "permission"; item: (typeof permissions)[0] }
-  > = [];
-
-  messages.forEach((msg) => {
-    renderData.push({ type: "message", item: msg });
-  });
-
-  permissions
-    .filter((p) => p.status === "pending")
-    .forEach((perm) => {
-      renderData.push({ type: "permission", item: perm });
+  const renderData = useMemo<RenderItem[]>(() => {
+    const data: RenderItem[] = [];
+    messages.forEach((msg) => {
+      data.push({ type: "message", item: msg });
     });
+    permissions
+      .filter((p) => p.status === "pending")
+      .forEach((perm) => {
+        data.push({ type: "permission", item: perm });
+      });
+    return data;
+  }, [messages, permissions]);
+
+  // Stable renderItem callback
+  const renderItem = useCallback(
+    ({ item }: { item: RenderItem }) => {
+      if (item.type === "permission") {
+        return (
+          <PermissionCard
+            permission={item.item}
+            onApprove={handleApprove}
+            onDeny={handleDeny}
+          />
+        );
+      }
+      return (
+        <View style={styles.messageWrapper}>
+          <MessageBubble message={item.item} />
+        </View>
+      );
+    },
+    [handleApprove, handleDeny],
+  );
+
+  const keyExtractor = useCallback(
+    (item: RenderItem) =>
+      item.type === "message" ? item.item.id : `perm-${item.item.id}`,
+    [],
+  );
+
+  // Stable separator using theme border color
+  const renderSeparator = useCallback(
+    () => <ItemSeparator borderColor={colors.border} />,
+    [colors.border],
+  );
 
   const hasInput = inputText.trim().length > 0;
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 56 + insets.top : 0}
     >
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={[styles.flex, { backgroundColor: colors.bg }]}>
         <ConnectionBanner />
 
-        <FlatList
-          ref={flatListRef}
+        <FlashList
+          ref={flashListRef}
           data={renderData}
-          keyExtractor={(item, idx) =>
-            item.type === "message"
-              ? item.item.id
-              : `perm-${item.item.id}`
-          }
-          renderItem={({ item }) => {
-            if (item.type === "permission") {
-              return (
-                <PermissionCard
-                  permission={item.item}
-                  onApprove={handleApprove}
-                  onDeny={handleDeny}
-                />
-              );
-            }
-            return (
-              <View style={{ paddingHorizontal: 12 }}>
-                <MessageBubble message={item.item} />
-              </View>
-            );
-          }}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={80}
           contentContainerStyle={{ paddingTop: 8, paddingBottom: 16 }}
-          style={{ flex: 1 }}
-          ItemSeparatorComponent={() => (
-            <View style={{ height: 1, backgroundColor: colors.border, marginHorizontal: 12, marginVertical: 2 }} />
-          )}
+          ItemSeparatorComponent={renderSeparator}
+          onContentSizeChange={handleContentSizeChange}
         />
 
         {/* Terminal prompt input bar */}
         <View
-          style={{
-            flexDirection: "row",
-            alignItems: "flex-end",
-            paddingHorizontal: 12,
-            paddingTop: 8,
-            paddingBottom: Math.max(insets.bottom, 8),
-            backgroundColor: colors.surface,
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-          }}
+          style={[
+            styles.inputBar,
+            {
+              paddingBottom: Math.max(insets.bottom, 8),
+              backgroundColor: colors.surface,
+              borderTopColor: colors.border,
+            },
+          ]}
         >
           {/* > prompt character */}
           <Text
-            style={{
-              fontFamily: fonts.semibold,
-              fontSize: 18,
-              color: colors.accent,
-              marginRight: 6,
-              marginBottom: Platform.OS === "ios" ? 8 : 10,
-            }}
+            style={[
+              styles.promptChar,
+              {
+                color: colors.accent,
+                marginBottom: Platform.OS === "ios" ? 8 : 10,
+              },
+            ]}
           >
             {">"}
           </Text>
           <TextInput
-            style={{
-              flex: 1,
-              minHeight: 40,
-              maxHeight: 100,
-              fontFamily: fonts.regular,
-              fontSize: 15,
-              color: colors.bright,
-              paddingVertical: 8,
-              paddingHorizontal: 0,
-            }}
+            style={[styles.textInput, { color: colors.bright }]}
             value={inputText}
             onChangeText={setInputText}
             placeholder="type a command..."
@@ -301,39 +307,84 @@ export default function ChatScreen() {
             multiline
             returnKeyType="send"
             onSubmitEditing={handleSend}
-            blurOnSubmit
+            blurOnSubmit={false}
           />
           {/* ↵ send button */}
-          <TouchableOpacity
+          <AnimatedPressable
             onPress={handleSend}
             disabled={!hasInput || sending}
-            style={{
-              height: 36,
-              width: 36,
-              alignItems: "center",
-              justifyContent: "center",
-              marginLeft: 6,
-              marginBottom: Platform.OS === "ios" ? 4 : 6,
-              borderWidth: 1,
-              borderColor: hasInput && !sending ? colors.success : colors.border,
-            }}
+            style={[
+              styles.sendBtn,
+              {
+                marginBottom: Platform.OS === "ios" ? 4 : 6,
+                borderColor: hasInput && !sending ? colors.success : colors.border,
+              },
+            ]}
           >
             {sending ? (
               <ActivityIndicator size="small" color={colors.success} />
             ) : (
               <Text
-                style={{
-                  fontFamily: fonts.bold,
-                  fontSize: 16,
-                  color: hasInput ? colors.success : colors.dim,
-                }}
+                style={[
+                  styles.sendIcon,
+                  { color: hasInput ? colors.success : colors.dim },
+                ]}
               >
                 ↵
               </Text>
             )}
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  verbosityBtn: {
+    marginRight: 8,
+    height: 44,
+    width: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  messageWrapper: {
+    paddingHorizontal: 12,
+  },
+  inputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  promptChar: {
+    fontFamily: fonts.semibold,
+    fontSize: 18,
+    marginRight: 6,
+  },
+  textInput: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 100,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  sendBtn: {
+    height: 44,
+    width: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+    borderWidth: 1,
+  },
+  sendIcon: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
+});

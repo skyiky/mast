@@ -5,7 +5,7 @@
 
 import "../global.css";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -20,6 +20,7 @@ import {
 import { ActivityIndicator, View } from "react-native";
 import { ThemeProvider, useTheme } from "../src/lib/ThemeContext";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
+import { useConnectionStore } from "../src/stores/connection";
 
 function RootNavigator() {
   const { colors } = useTheme();
@@ -75,7 +76,15 @@ export default function RootLayout() {
     JetBrainsMono_700Bold,
   });
 
-  if (!fontsLoaded) {
+  const tokenLoaded = useConnectionStore((s) => s.tokenLoaded);
+  const loadToken = useConnectionStore((s) => s.loadToken);
+
+  // Load API token from SecureStore on startup
+  useEffect(() => {
+    loadToken();
+  }, []);
+
+  if (!fontsLoaded || !tokenLoaded) {
     return (
       <View style={{ flex: 1, backgroundColor: "#0A0A0A", alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color="#22C55E" />

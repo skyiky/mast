@@ -1,14 +1,21 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  getSecureApiToken,
+  setSecureApiToken,
+  deleteSecureApiToken,
+} from "../lib/secure-token";
 
 interface ConnectionState {
   /** Orchestrator base URL (HTTP) */
   serverUrl: string;
   /** Orchestrator WebSocket URL */
   wsUrl: string;
-  /** API token for phone auth */
+  /** API token for phone auth — loaded from SecureStore on startup */
   apiToken: string;
+  /** Whether the token has been loaded from SecureStore */
+  tokenLoaded: boolean;
   /** Whether the phone WebSocket is connected to orchestrator */
   wsConnected: boolean;
   /** Whether the daemon is connected to orchestrator */
@@ -25,12 +32,17 @@ interface ConnectionState {
   setDaemonStatus: (daemonConnected: boolean, opencodeReady: boolean) => void;
   setPaired: (paired: boolean) => void;
   reset: () => void;
+  /** Load API token from SecureStore — call once on app startup */
+  loadToken: () => Promise<void>;
 }
+
+const DEFAULT_API_TOKEN = "mast-api-token-phase1";
 
 const DEFAULT_STATE = {
   serverUrl: "",
   wsUrl: "",
-  apiToken: "mast-api-token-phase1", // hardcoded for Phase 5
+  apiToken: DEFAULT_API_TOKEN,
+  tokenLoaded: false,
   wsConnected: false,
   daemonConnected: false,
   opencodeReady: false,
@@ -48,7 +60,11 @@ export const useConnectionStore = create<ConnectionState>()(
         set({ serverUrl: url, wsUrl });
       },
 
-      setApiToken: (token: string) => set({ apiToken: token }),
+      setApiToken: (token: string) => {
+        // Persist to SecureStore (fire-and-forget)
+        setSecureApiToken(token);
+        set({ apiToken: token });
+      },
 
       setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
 
@@ -57,15 +73,29 @@ export const useConnectionStore = create<ConnectionState>()(
 
       setPaired: (paired: boolean) => set({ paired }),
 
-      reset: () => set(DEFAULT_STATE),
+      reset: () => {
+        deleteSecureApiToken();
+        set({ ...DEFAULT_STATE, apiToken: DEFAULT_API_TOKEN, tokenLoaded: true });
+      },
+
+      loadToken: async () => {
+        const token = await getSecureApiToken();
+        if (token) {
+          set({ apiToken: token, tokenLoaded: true });
+        } else {
+          // First launch — persist the default token to SecureStore
+          await setSecureApiToken(DEFAULT_API_TOKEN);
+          set({ tokenLoaded: true });
+        }
+      },
     }),
     {
       name: "mast-connection",
       storage: createJSONStorage(() => AsyncStorage),
+      // apiToken is NO LONGER persisted in AsyncStorage — it lives in SecureStore
       partialize: (state) => ({
         serverUrl: state.serverUrl,
         wsUrl: state.wsUrl,
-        apiToken: state.apiToken,
         paired: state.paired,
       }),
     },

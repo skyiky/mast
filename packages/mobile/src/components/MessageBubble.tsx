@@ -4,10 +4,12 @@
  * No bubbles. Full-width blocks.
  * - User messages: cyan ">" prefix, bright white text
  * - Agent messages: thin green left border, standard text color
+ *
+ * Wrapped in React.memo — rendered inside FlashList.
  */
 
 import React from "react";
-import { View, Text, ActivityIndicator } from "react-native";
+import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import type { ChatMessage, MessagePart } from "../stores/sessions";
 import { useSettingsStore } from "../stores/settings";
 import { useTheme } from "../lib/ThemeContext";
@@ -19,7 +21,7 @@ interface MessageBubbleProps {
   message: ChatMessage;
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+function MessageBubbleInner({ message }: MessageBubbleProps) {
   const verbosity = useSettingsStore((s) => s.verbosity);
   const { colors } = useTheme();
   const isUser = message.role === "user";
@@ -48,9 +50,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   return (
     <View
       style={[
+        styles.container,
         {
-          paddingVertical: 6,
-          paddingHorizontal: 0,
           borderLeftWidth: isUser ? 0 : 2,
           borderLeftColor: isUser ? "transparent" : colors.success,
         },
@@ -58,22 +59,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     >
       {/* Timestamp — right-aligned */}
       {time && (
-        <Text
-          style={{
-            fontFamily: fonts.regular,
-            fontSize: 10,
-            color: colors.dim,
-            textAlign: "right",
-            marginBottom: 2,
-            paddingRight: 4,
-          }}
-        >
+        <Text style={[styles.timestamp, { color: colors.dim }]}>
           {time}
         </Text>
       )}
 
       {/* Message content */}
-      <View style={{ paddingLeft: isUser ? 0 : 10 }}>
+      <View style={isUser ? styles.contentUser : styles.contentAgent}>
         {visibleParts.map((part, idx) => (
           <PartRenderer
             key={`${message.id}-${idx}`}
@@ -86,16 +78,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Thinking state — blinking-style dots */}
         {!hasVisibleContent && (
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text
-              style={{
-                fontFamily: fonts.regular,
-                fontSize: 13,
-                color: colors.muted,
-                fontStyle: "italic",
-                marginRight: 6,
-              }}
-            >
+          <View style={styles.thinking}>
+            <Text style={[styles.thinkingText, { color: colors.muted }]}>
               ...
             </Text>
             <ActivityIndicator size="small" color={colors.muted} />
@@ -107,7 +91,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           <ActivityIndicator
             size="small"
             color={isUser ? colors.accent : colors.success}
-            style={{ marginTop: 4, alignSelf: "flex-start" }}
+            style={styles.streamingIndicator}
           />
         )}
       </View>
@@ -115,7 +99,16 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   );
 }
 
-function PartRenderer({
+const MessageBubble = React.memo(MessageBubbleInner);
+MessageBubble.displayName = "MessageBubble";
+
+export default MessageBubble;
+
+// ---------------------------------------------------------------------------
+// PartRenderer — renders individual message parts
+// ---------------------------------------------------------------------------
+
+const PartRenderer = React.memo(function PartRenderer({
   part,
   isUser,
   verbosity,
@@ -132,26 +125,11 @@ function PartRenderer({
     case "text":
       if (isUser) {
         return (
-          <View style={{ flexDirection: "row" }}>
-            <Text
-              style={{
-                fontFamily: fonts.semibold,
-                fontSize: 15,
-                color: colors.accent,
-                marginRight: 6,
-              }}
-            >
+          <View style={styles.userTextRow}>
+            <Text style={[styles.userPrompt, { color: colors.accent }]}>
               {">"}
             </Text>
-            <Text
-              style={{
-                fontFamily: fonts.regular,
-                fontSize: 15,
-                color: colors.bright,
-                flex: 1,
-                lineHeight: 22,
-              }}
-            >
+            <Text style={[styles.userText, { color: colors.bright }]}>
               {part.content}
             </Text>
           </View>
@@ -175,34 +153,11 @@ function PartRenderer({
 
     case "reasoning":
       return (
-        <View
-          style={{
-            marginTop: 6,
-            paddingLeft: 10,
-            borderLeftWidth: 2,
-            borderLeftColor: colors.border,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 10,
-              color: colors.muted,
-              marginBottom: 2,
-              textTransform: "uppercase",
-              letterSpacing: 1,
-            }}
-          >
+        <View style={[styles.reasoningBox, { borderLeftColor: colors.border }]}>
+          <Text style={[styles.reasoningLabel, { color: colors.muted }]}>
             reasoning
           </Text>
-          <Text
-            style={{
-              fontFamily: fonts.light,
-              fontSize: 12,
-              color: colors.muted,
-              lineHeight: 18,
-            }}
-          >
+          <Text style={[styles.reasoningText, { color: colors.muted }]}>
             {part.content}
           </Text>
         </View>
@@ -210,22 +165,8 @@ function PartRenderer({
 
     case "file":
       return (
-        <View
-          style={{
-            marginTop: 6,
-            backgroundColor: colors.surface,
-            borderRadius: 4,
-            paddingHorizontal: 10,
-            paddingVertical: 6,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 12,
-              color: colors.muted,
-            }}
-          >
+        <View style={[styles.fileBox, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.fileText, { color: colors.muted }]}>
             {part.content}
           </Text>
         </View>
@@ -234,23 +175,8 @@ function PartRenderer({
     case "tool-result":
       if (verbosity === "full") {
         return (
-          <View
-            style={{
-              marginTop: 4,
-              backgroundColor: colors.successDim,
-              borderRadius: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-            }}
-          >
-            <Text
-              style={{
-                fontFamily: fonts.regular,
-                fontSize: 11,
-                color: colors.success,
-                lineHeight: 16,
-              }}
-            >
+          <View style={[styles.toolResultBox, { backgroundColor: colors.successDim }]}>
+            <Text style={[styles.toolResultText, { color: colors.success }]}>
               {part.content.length > 500
                 ? part.content.slice(0, 500) + "..."
                 : part.content}
@@ -263,4 +189,95 @@ function PartRenderer({
     default:
       return null;
   }
-}
+});
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const styles = StyleSheet.create({
+  container: {
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+  },
+  timestamp: {
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    textAlign: "right",
+    marginBottom: 2,
+    paddingRight: 4,
+  },
+  contentUser: {
+    paddingLeft: 0,
+  },
+  contentAgent: {
+    paddingLeft: 10,
+  },
+  thinking: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  thinkingText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    fontStyle: "italic",
+    marginRight: 6,
+  },
+  streamingIndicator: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  // PartRenderer styles
+  userTextRow: {
+    flexDirection: "row",
+  },
+  userPrompt: {
+    fontFamily: fonts.semibold,
+    fontSize: 15,
+    marginRight: 6,
+  },
+  userText: {
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 22,
+  },
+  reasoningBox: {
+    marginTop: 6,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+  },
+  reasoningLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    marginBottom: 2,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  reasoningText: {
+    fontFamily: fonts.light,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  fileBox: {
+    marginTop: 6,
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  fileText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+  },
+  toolResultBox: {
+    marginTop: 4,
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  toolResultText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+});

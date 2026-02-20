@@ -8,12 +8,12 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -22,6 +22,7 @@ import { useConnectionStore } from "../src/stores/connection";
 import { useTheme } from "../src/lib/ThemeContext";
 import { fonts } from "../src/lib/themes";
 import CodeInput from "../src/components/CodeInput";
+import AnimatedPressable from "../src/components/AnimatedPressable";
 import * as api from "../src/lib/api";
 
 type Mode = "qr" | "manual";
@@ -110,140 +111,85 @@ export default function PairScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flex: 1, backgroundColor: colors.bg }}
+      style={[styles.flex, { backgroundColor: colors.bg }]}
     >
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 }}>
+        <View style={styles.body}>
           {/* Title */}
-          <Text
-            style={{
-              fontFamily: fonts.bold,
-              fontSize: 22,
-              color: colors.bright,
-              textAlign: "center",
-              marginBottom: 6,
-            }}
-          >
+          <Text style={[styles.title, { color: colors.bright }]}>
             pair device
           </Text>
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 13,
-              color: colors.muted,
-              textAlign: "center",
-              marginBottom: 28,
-            }}
-          >
+          <Text style={[styles.subtitle, { color: colors.muted }]}>
             scan the qr code from your daemon, or enter the code manually.
           </Text>
 
           {/* Mode toggle */}
-          <View
-            style={{
-              flexDirection: "row",
-              marginBottom: 20,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <TouchableOpacity
+          <View style={[styles.modeToggle, { borderColor: colors.border }]}>
+            <AnimatedPressable
               onPress={() => setMode("qr")}
-              activeOpacity={0.6}
-              style={{
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: "center",
-                backgroundColor: mode === "qr" ? colors.surface : "transparent",
-                borderRightWidth: 1,
-                borderRightColor: colors.border,
-              }}
+              pressScale={0.95}
+              style={[
+                styles.modeBtn,
+                {
+                  backgroundColor: mode === "qr" ? colors.surface : "transparent",
+                  borderRightWidth: 1,
+                  borderRightColor: colors.border,
+                },
+              ]}
             >
               <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 12,
-                  color: mode === "qr" ? colors.accent : colors.muted,
-                }}
+                style={[
+                  styles.modeText,
+                  { color: mode === "qr" ? colors.accent : colors.muted },
+                ]}
               >
                 [scan qr]
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </AnimatedPressable>
+            <AnimatedPressable
               onPress={() => setMode("manual")}
-              activeOpacity={0.6}
-              style={{
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: "center",
-                backgroundColor: mode === "manual" ? colors.surface : "transparent",
-              }}
+              pressScale={0.95}
+              style={[
+                styles.modeBtn,
+                {
+                  backgroundColor: mode === "manual" ? colors.surface : "transparent",
+                },
+              ]}
             >
               <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 12,
-                  color: mode === "manual" ? colors.accent : colors.muted,
-                }}
+                style={[
+                  styles.modeText,
+                  { color: mode === "manual" ? colors.accent : colors.muted },
+                ]}
               >
                 [enter code]
               </Text>
-            </TouchableOpacity>
+            </AnimatedPressable>
           </View>
 
           {mode === "qr" ? (
-            <View style={{ alignItems: "center" }}>
+            <View style={styles.centered}>
               {!permission?.granted ? (
-                <View style={{ alignItems: "center", paddingVertical: 32 }}>
-                  <Text
-                    style={{
-                      fontFamily: fonts.regular,
-                      fontSize: 13,
-                      color: colors.muted,
-                      marginBottom: 16,
-                      textAlign: "center",
-                    }}
-                  >
+                <View style={styles.cameraPrompt}>
+                  <Text style={[styles.cameraPromptText, { color: colors.muted }]}>
                     camera access needed to scan qr code.
                   </Text>
-                  <TouchableOpacity
+                  <AnimatedPressable
                     onPress={requestPermission}
-                    activeOpacity={0.6}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: colors.success,
-                      paddingHorizontal: 20,
-                      paddingVertical: 10,
-                    }}
+                    style={[styles.grantBtn, { borderColor: colors.success }]}
                   >
-                    <Text
-                      style={{
-                        fontFamily: fonts.medium,
-                        fontSize: 13,
-                        color: colors.success,
-                      }}
-                    >
+                    <Text style={[styles.grantBtnText, { color: colors.success }]}>
                       [grant access]
                     </Text>
-                  </TouchableOpacity>
+                  </AnimatedPressable>
                 </View>
               ) : (
-                <View
-                  style={{
-                    width: "100%",
-                    aspectRatio: 1,
-                    overflow: "hidden",
-                    backgroundColor: "#000",
-                    marginBottom: 16,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
+                <View style={[styles.cameraContainer, { borderColor: colors.border }]}>
                   <CameraView
-                    style={{ flex: 1 }}
+                    style={styles.flex}
                     barcodeScannerSettings={{
                       barcodeTypes: ["qr"],
                     }}
@@ -255,30 +201,18 @@ export default function PairScreen() {
           ) : (
             <View>
               {/* Server URL */}
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 11,
-                  color: colors.muted,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  marginBottom: 6,
-                }}
-              >
+              <Text style={[styles.fieldLabel, { color: colors.muted }]}>
                 server url
               </Text>
               <TextInput
-                style={{
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  fontFamily: fonts.regular,
-                  fontSize: 14,
-                  color: colors.bright,
-                  marginBottom: 20,
-                }}
+                style={[
+                  styles.textInput,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    color: colors.bright,
+                  },
+                ]}
                 value={manualUrl}
                 onChangeText={setManualUrl}
                 placeholder="https://your-server.azurecontainerapps.io"
@@ -289,16 +223,7 @@ export default function PairScreen() {
               />
 
               {/* Pairing code */}
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 11,
-                  color: colors.muted,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  marginBottom: 10,
-                }}
-              >
+              <Text style={[styles.fieldLabel, { color: colors.muted }]}>
                 pairing code
               </Text>
               <CodeInput onComplete={handleManualCode} error={codeError} />
@@ -307,16 +232,9 @@ export default function PairScreen() {
 
           {/* Loading */}
           {loading && (
-            <View style={{ alignItems: "center", marginTop: 24 }}>
+            <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.success} />
-              <Text
-                style={{
-                  fontFamily: fonts.regular,
-                  fontSize: 12,
-                  color: colors.muted,
-                  marginTop: 8,
-                }}
-              >
+              <Text style={[styles.loadingText, { color: colors.muted }]}>
                 pairing...
               </Text>
             </View>
@@ -325,23 +243,15 @@ export default function PairScreen() {
           {/* Error */}
           {error && (
             <View
-              style={{
-                marginTop: 16,
-                backgroundColor: colors.dangerDim,
-                borderWidth: 1,
-                borderColor: colors.danger,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-              }}
+              style={[
+                styles.errorBox,
+                {
+                  backgroundColor: colors.dangerDim,
+                  borderColor: colors.danger,
+                },
+              ]}
             >
-              <Text
-                style={{
-                  fontFamily: fonts.regular,
-                  fontSize: 12,
-                  color: colors.danger,
-                  textAlign: "center",
-                }}
-              >
+              <Text style={[styles.errorText, { color: colors.danger }]}>
                 {error}
               </Text>
             </View>
@@ -351,3 +261,114 @@ export default function PairScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  body: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+  },
+  title: {
+    fontFamily: fonts.bold,
+    fontSize: 22,
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 28,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    marginBottom: 20,
+    borderWidth: 1,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  modeText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  centered: {
+    alignItems: "center",
+  },
+  cameraPrompt: {
+    alignItems: "center",
+    paddingVertical: 32,
+  },
+  cameraPromptText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  grantBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  grantBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+  },
+  cameraContainer: {
+    width: "100%",
+    aspectRatio: 1,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  fieldLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  textInput: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    marginTop: 24,
+  },
+  loadingText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginTop: 8,
+  },
+  errorBox: {
+    marginTop: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  errorText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    textAlign: "center",
+  },
+});

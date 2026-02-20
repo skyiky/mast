@@ -4,11 +4,12 @@
  */
 
 import React from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { PermissionRequest } from "../stores/sessions";
 import { useTheme } from "../lib/ThemeContext";
 import { fonts } from "../lib/themes";
+import AnimatedPressable from "./AnimatedPressable";
 
 interface PermissionCardProps {
   permission: PermissionRequest;
@@ -38,135 +39,70 @@ export default function PermissionCard({
 
   return (
     <View
-      style={{
-        marginHorizontal: 12,
-        marginVertical: 6,
-        borderWidth: 1,
-        borderColor: colors.warning,
-        backgroundColor: colors.warningDim,
-        overflow: "hidden",
-      }}
+      style={[
+        styles.card,
+        {
+          borderColor: colors.warning,
+          backgroundColor: colors.warningDim,
+        },
+      ]}
     >
       {/* Header + description */}
-      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
-        <Text
-          style={{
-            fontFamily: fonts.semibold,
-            fontSize: 12,
-            color: colors.warning,
-            marginBottom: 4,
-          }}
-        >
+      <View style={styles.body}>
+        <Text style={[styles.header, { color: colors.warning }]}>
           ⚠ permission required
         </Text>
-        <Text
-          style={{
-            fontFamily: fonts.regular,
-            fontSize: 13,
-            color: colors.text,
-            lineHeight: 19,
-          }}
-        >
+        <Text style={[styles.description, { color: colors.text }]}>
           {permission.description}
         </Text>
       </View>
 
       {/* Action buttons */}
       {isPending && (
-        <View
-          style={{
-            flexDirection: "row",
-            borderTopWidth: 1,
-            borderTopColor: colors.warning,
-          }}
-        >
-          <TouchableOpacity
+        <View style={[styles.actions, { borderTopColor: colors.warning }]}>
+          <AnimatedPressable
             onPress={handleDeny}
             disabled={loading}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              alignItems: "center",
-              borderRightWidth: 1,
-              borderRightColor: colors.warning,
-            }}
-            activeOpacity={0.6}
+            style={[
+              styles.actionBtn,
+              {
+                borderRightWidth: 1,
+                borderRightColor: colors.warning,
+              },
+            ]}
           >
-            <Text
-              style={{
-                fontFamily: fonts.medium,
-                fontSize: 12,
-                color: colors.danger,
-              }}
-            >
+            <Text style={[styles.actionText, { color: colors.danger }]}>
               [deny]
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </AnimatedPressable>
+          <AnimatedPressable
             onPress={handleApprove}
             disabled={loading}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              alignItems: "center",
-            }}
-            activeOpacity={0.6}
+            style={styles.actionBtn}
           >
             {loading ? (
               <ActivityIndicator size="small" color={colors.success} />
             ) : (
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 12,
-                  color: colors.success,
-                }}
-              >
+              <Text style={[styles.actionText, { color: colors.success }]}>
                 [approve]
               </Text>
             )}
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       )}
 
       {/* Status indicators */}
       {permission.status === "approved" && (
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            backgroundColor: colors.successDim,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 11,
-              color: colors.success,
-              textAlign: "center",
-            }}
-          >
+        <View style={[styles.statusBar, { backgroundColor: colors.successDim }]}>
+          <Text style={[styles.statusText, { color: colors.success }]}>
             ✓ approved
           </Text>
         </View>
       )}
 
       {permission.status === "denied" && (
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            backgroundColor: colors.dangerDim,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 11,
-              color: colors.danger,
-              textAlign: "center",
-            }}
-          >
+        <View style={[styles.statusBar, { backgroundColor: colors.dangerDim }]}>
+          <Text style={[styles.statusText, { color: colors.danger }]}>
             ✗ denied
           </Text>
         </View>
@@ -174,3 +110,50 @@ export default function PermissionCard({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    marginHorizontal: 12,
+    marginVertical: 6,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  body: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  header: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  description: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  actions: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  actionText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  statusBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  statusText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    textAlign: "center",
+  },
+});

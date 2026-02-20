@@ -6,11 +6,12 @@ import React, { useEffect, useCallback, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
-  TouchableOpacity,
+  Pressable,
   RefreshControl,
   ActivityIndicator,
+  StyleSheet,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { useRouter, useNavigation, Redirect } from "expo-router";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSessionStore, type Session } from "../src/stores/sessions";
@@ -20,6 +21,7 @@ import { useTheme } from "../src/lib/ThemeContext";
 import { fonts } from "../src/lib/themes";
 import ConnectionBanner from "../src/components/ConnectionBanner";
 import SessionRow from "../src/components/SessionRow";
+import AnimatedPressable from "../src/components/AnimatedPressable";
 
 export default function SessionListScreen() {
   const router = useRouter();
@@ -42,20 +44,17 @@ export default function SessionListScreen() {
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <TouchableOpacity
+        <Pressable
           onPress={() => router.push("/settings")}
-          style={{ marginRight: 8 }}
+          hitSlop={8}
+          style={styles.configBtn}
         >
           <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 13,
-              color: colors.accent,
-            }}
+            style={[styles.configText, { color: colors.accent }]}
           >
             [config]
           </Text>
-        </TouchableOpacity>
+        </Pressable>
       ),
     });
   }, [navigation, router, colors]);
@@ -114,85 +113,60 @@ export default function SessionListScreen() {
     [router],
   );
 
+  // Stable renderItem for FlashList
+  const renderSession = useCallback(
+    ({ item }: { item: Session }) => (
+      <SessionRow
+        session={item}
+        onPress={() => handleOpenSession(item)}
+      />
+    ),
+    [handleOpenSession],
+  );
+
+  const keyExtractor = useCallback((item: Session) => item.id, []);
+
   if (!paired || !serverUrl) return <Redirect href="/pair" />;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={[styles.screen, { backgroundColor: colors.bg }]}>
       <ConnectionBanner />
 
       {loadingSessions && sessions.length === 0 ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.success} />
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 13,
-              color: colors.muted,
-              marginTop: 12,
-            }}
-          >
+          <Text style={[styles.loadingText, { color: colors.muted }]}>
             loading sessions...
           </Text>
         </View>
       ) : sessions.length === 0 ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
-          <Text
-            style={{
-              fontFamily: fonts.bold,
-              fontSize: 18,
-              color: colors.bright,
-              marginBottom: 8,
-            }}
-          >
+        <View style={styles.empty}>
+          <Text style={[styles.emptyTitle, { color: colors.bright }]}>
             no sessions
           </Text>
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 13,
-              color: colors.muted,
-              textAlign: "center",
-              marginBottom: 20,
-            }}
-          >
+          <Text style={[styles.emptySubtitle, { color: colors.muted }]}>
             start a new session to begin working with your agent.
           </Text>
-          <TouchableOpacity
+          <AnimatedPressable
             onPress={handleNewSession}
             disabled={creatingSession}
-            activeOpacity={0.6}
-            style={{
-              borderWidth: 1,
-              borderColor: colors.success,
-              paddingHorizontal: 24,
-              paddingVertical: 10,
-            }}
+            style={[styles.newSessionBtn, { borderColor: colors.success }]}
           >
             {creatingSession ? (
               <ActivityIndicator color={colors.success} />
             ) : (
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 14,
-                  color: colors.success,
-                }}
-              >
+              <Text style={[styles.newSessionText, { color: colors.success }]}>
                 [new session]
               </Text>
             )}
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={sessions}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <SessionRow
-              session={item}
-              onPress={() => handleOpenSession(item)}
-            />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderSession}
+          estimatedItemSize={60}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -206,38 +180,96 @@ export default function SessionListScreen() {
 
       {/* FAB for new session — green bordered, not filled */}
       {sessions.length > 0 && (
-        <TouchableOpacity
+        <AnimatedPressable
           onPress={handleNewSession}
           disabled={creatingSession}
-          activeOpacity={0.6}
-          style={{
-            position: "absolute",
-            bottom: 32,
-            right: 24,
-            width: 52,
-            height: 52,
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.success,
-            backgroundColor: colors.surface,
-          }}
+          style={[
+            styles.fab,
+            {
+              borderColor: colors.success,
+              backgroundColor: colors.surface,
+            },
+          ]}
         >
           {creatingSession ? (
             <ActivityIndicator color={colors.success} />
           ) : (
-            <Text
-              style={{
-                fontFamily: fonts.light,
-                fontSize: 24,
-                color: colors.success,
-              }}
-            >
+            <Text style={[styles.fabIcon, { color: colors.success }]}>
               +
             </Text>
           )}
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  configBtn: {
+    marginRight: 8,
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  configText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+  },
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    marginTop: 12,
+  },
+  empty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  newSessionBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  newSessionText: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+  },
+  fab: {
+    position: "absolute",
+    bottom: 32,
+    right: 24,
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  fabIcon: {
+    fontFamily: fonts.light,
+    fontSize: 24,
+  },
+});

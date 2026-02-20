@@ -3,12 +3,13 @@
  */
 
 import React from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert } from "react-native";
+import { View, Text, ScrollView, Alert, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSettingsStore, type Verbosity } from "../src/stores/settings";
 import { useTheme } from "../src/lib/ThemeContext";
-import { fonts } from "../src/lib/themes";
+import { type ThemeColors, fonts } from "../src/lib/themes";
+import AnimatedPressable from "../src/components/AnimatedPressable";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -42,18 +43,10 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }}>
+    <ScrollView style={[styles.screen, { backgroundColor: colors.bg }]}>
       {/* Connection Status */}
       <SectionHeader title="// connection" colors={colors} />
-      <View
-        style={{
-          marginHorizontal: 14,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          marginBottom: 20,
-        }}
-      >
+      <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
         <StatusRow
           label="server"
           value={serverUrl || "not configured"}
@@ -78,15 +71,7 @@ export default function SettingsScreen() {
 
       {/* Display */}
       <SectionHeader title="// display" colors={colors} />
-      <View
-        style={{
-          marginHorizontal: 14,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          marginBottom: 20,
-        }}
-      >
+      <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
         <OptionRow
           label="verbosity"
           options={[
@@ -101,61 +86,25 @@ export default function SettingsScreen() {
 
       {/* Device */}
       <SectionHeader title="// device" colors={colors} />
-      <View
-        style={{
-          marginHorizontal: 14,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          marginBottom: 20,
-        }}
-      >
-        <TouchableOpacity
+      <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+        <AnimatedPressable
           onPress={handleRepair}
-          activeOpacity={0.6}
-          style={{ paddingHorizontal: 14, paddingVertical: 12 }}
+          style={styles.repairBtn}
         >
-          <Text
-            style={{
-              fontFamily: fonts.medium,
-              fontSize: 13,
-              color: colors.danger,
-            }}
-          >
+          <Text style={[styles.repairText, { color: colors.danger }]}>
             [re-pair device]
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
       {/* About */}
       <SectionHeader title="// about" colors={colors} />
-      <View
-        style={{
-          marginHorizontal: 14,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          marginBottom: 40,
-        }}
-      >
-        <View style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
-          <Text
-            style={{
-              fontFamily: fonts.bold,
-              fontSize: 14,
-              color: colors.bright,
-            }}
-          >
+      <View style={[styles.cardLast, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+        <View style={styles.aboutContent}>
+          <Text style={[styles.aboutTitle, { color: colors.bright }]}>
             mast
           </Text>
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 11,
-              color: colors.dim,
-              marginTop: 2,
-            }}
-          >
+          <Text style={[styles.aboutVersion, { color: colors.dim }]}>
             v0.0.1 — phase 5 dogfood
           </Text>
         </View>
@@ -164,27 +113,17 @@ export default function SettingsScreen() {
   );
 }
 
-function SectionHeader({ title, colors }: { title: string; colors: any }) {
+function SectionHeader({ title, colors }: { title: string; colors: ThemeColors }) {
   return (
-    <Text
-      style={{
-        fontFamily: fonts.medium,
-        fontSize: 11,
-        color: colors.muted,
-        letterSpacing: 1,
-        paddingHorizontal: 18,
-        paddingVertical: 8,
-        marginTop: 4,
-      }}
-    >
+    <Text style={[styles.sectionHeader, { color: colors.muted }]}>
       {title}
     </Text>
   );
 }
 
-function Divider({ colors }: { colors: any }) {
+function Divider({ colors }: { colors: ThemeColors }) {
   return (
-    <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 14 }} />
+    <View style={[styles.divider, { backgroundColor: colors.border }]} />
   );
 }
 
@@ -197,7 +136,7 @@ function StatusRow({
   label: string;
   value: string;
   status: "green" | "yellow" | "red";
-  colors: any;
+  colors: ThemeColors;
 }) {
   const dotColor = {
     green: colors.success,
@@ -206,33 +145,13 @@ function StatusRow({
   }[status];
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12 }}>
-      <View
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: dotColor,
-          marginRight: 10,
-        }}
-      />
-      <Text
-        style={{
-          fontFamily: fonts.medium,
-          fontSize: 13,
-          color: colors.text,
-          flex: 1,
-        }}
-      >
+    <View style={styles.statusRow}>
+      <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
+      <Text style={[styles.statusLabel, { color: colors.text }]}>
         {label}
       </Text>
       <Text
-        style={{
-          fontFamily: fonts.regular,
-          fontSize: 12,
-          color: colors.muted,
-          maxWidth: 200,
-        }}
+        style={[styles.statusValue, { color: colors.muted }]}
         numberOfLines={1}
       >
         {value}
@@ -252,47 +171,137 @@ function OptionRow<T extends string>({
   options: { value: T; label: string }[];
   selected: T;
   onSelect: (value: T) => void;
-  colors: any;
+  colors: ThemeColors;
 }) {
   return (
-    <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
-      <Text
-        style={{
-          fontFamily: fonts.medium,
-          fontSize: 13,
-          color: colors.text,
-          marginBottom: 8,
-        }}
-      >
+    <View style={styles.optionRow}>
+      <Text style={[styles.optionLabel, { color: colors.text }]}>
         {label}
       </Text>
-      <View style={{ flexDirection: "row", gap: 8 }}>
+      <View style={styles.optionButtons}>
         {options.map((opt) => (
-          <TouchableOpacity
+          <AnimatedPressable
             key={opt.value}
             onPress={() => onSelect(opt.value)}
-            activeOpacity={0.6}
-            style={{
-              flex: 1,
-              paddingVertical: 6,
-              alignItems: "center",
-              borderWidth: 1,
-              borderColor: selected === opt.value ? colors.accent : colors.border,
-              backgroundColor: selected === opt.value ? colors.accentDim : "transparent",
-            }}
+            pressScale={0.95}
+            style={[
+              styles.optionBtn,
+              {
+                borderColor: selected === opt.value ? colors.accent : colors.border,
+                backgroundColor: selected === opt.value ? colors.accentDim : "transparent",
+              },
+            ]}
           >
             <Text
-              style={{
-                fontFamily: fonts.medium,
-                fontSize: 12,
-                color: selected === opt.value ? colors.accent : colors.muted,
-              }}
+              style={[
+                styles.optionBtnText,
+                { color: selected === opt.value ? colors.accent : colors.muted },
+              ]}
             >
               {opt.label}
             </Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         ))}
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  card: {
+    marginHorizontal: 14,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  cardLast: {
+    marginHorizontal: 14,
+    borderWidth: 1,
+    marginBottom: 40,
+  },
+  sectionHeader: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    letterSpacing: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  divider: {
+    height: 1,
+    marginLeft: 14,
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  statusLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    flex: 1,
+  },
+  statusValue: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    maxWidth: 200,
+  },
+  repairBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  repairText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+  },
+  aboutContent: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  aboutTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  aboutVersion: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  optionRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  optionLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  optionButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  optionBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  optionBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+});

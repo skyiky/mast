@@ -5,10 +5,11 @@
  */
 
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../lib/ThemeContext";
 import { fonts } from "../lib/themes";
+import AnimatedPressable from "./AnimatedPressable";
 
 interface ToolCallCardProps {
   toolName: string;
@@ -32,116 +33,49 @@ export default function ToolCallCard({
   };
 
   return (
-    <View style={{ marginVertical: 2 }}>
-      <TouchableOpacity
+    <View style={styles.wrapper}>
+      <AnimatedPressable
         onPress={toggle}
-        activeOpacity={0.7}
-        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 2 }}
+        style={styles.header}
+        pressScale={0.98}
       >
-        <Text
-          style={{
-            fontFamily: fonts.regular,
-            fontSize: 12,
-            color: colors.muted,
-            marginRight: 4,
-          }}
-        >
+        <Text style={[styles.toggleIcon, { color: colors.muted }]}>
           {collapsed ? "+" : "-"}
         </Text>
-        <Text
-          style={{
-            fontFamily: fonts.regular,
-            fontSize: 12,
-            color: colors.dim,
-          }}
-        >
+        <Text style={[styles.label, { color: colors.dim }]}>
           [tool]
         </Text>
         <Text
-          style={{
-            fontFamily: fonts.medium,
-            fontSize: 12,
-            color: colors.success,
-            marginLeft: 4,
-            flex: 1,
-          }}
+          style={[styles.toolName, { color: colors.success }]}
           numberOfLines={1}
         >
           {toolName}
         </Text>
         {result && (
-          <Text
-            style={{
-              fontFamily: fonts.regular,
-              fontSize: 12,
-              color: colors.success,
-              marginLeft: 4,
-            }}
-          >
+          <Text style={[styles.checkmark, { color: colors.success }]}>
             ✓
           </Text>
         )}
-      </TouchableOpacity>
+      </AnimatedPressable>
 
       {!collapsed && (
-        <View
-          style={{
-            marginLeft: 16,
-            paddingLeft: 8,
-            borderLeftWidth: 1,
-            borderLeftColor: colors.border,
-            marginTop: 2,
-            marginBottom: 4,
-          }}
-        >
+        <View style={[styles.body, { borderLeftColor: colors.border }]}>
           {args && (
-            <View style={{ marginBottom: 4 }}>
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 10,
-                  color: colors.dim,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  marginBottom: 2,
-                }}
-              >
+            <View style={styles.section}>
+              <Text style={[styles.sectionLabel, { color: colors.dim }]}>
                 args
               </Text>
-              <Text
-                style={{
-                  fontFamily: fonts.regular,
-                  fontSize: 11,
-                  color: colors.muted,
-                  lineHeight: 16,
-                }}
-              >
+              <Text style={[styles.sectionContent, { color: colors.muted }]}>
                 {formatArgs(args)}
               </Text>
             </View>
           )}
           {result && (
             <View>
-              <Text
-                style={{
-                  fontFamily: fonts.medium,
-                  fontSize: 10,
-                  color: colors.dim,
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                  marginBottom: 2,
-                }}
-              >
+              <Text style={[styles.sectionLabel, { color: colors.dim }]}>
                 result
               </Text>
-              <Text
-                style={{
-                  fontFamily: fonts.regular,
-                  fontSize: 11,
-                  color: colors.success,
-                  lineHeight: 16,
-                }}
-              >
+              <Text style={[styles.resultContent, { color: colors.success }]}>
                 {result.length > 500 ? result.slice(0, 500) + "..." : result}
               </Text>
             </View>
@@ -151,6 +85,65 @@ export default function ToolCallCard({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    marginVertical: 2,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 4,
+    minHeight: 44,
+  },
+  toggleIcon: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginRight: 4,
+  },
+  label: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+  },
+  toolName: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    marginLeft: 4,
+    flex: 1,
+  },
+  checkmark: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  body: {
+    marginLeft: 16,
+    paddingLeft: 8,
+    borderLeftWidth: 1,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  section: {
+    marginBottom: 4,
+  },
+  sectionLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  sectionContent: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  resultContent: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+});
 
 function formatArgs(args: string): string {
   try {
