@@ -1,66 +1,44 @@
 /**
- * API client hook for sending HTTP requests to the orchestrator.
+ * API hook — wraps lib/api.ts with config from Zustand connection store.
  */
 
 import { useCallback } from "react";
-import type { ServerConfig } from "../types";
+import { useConnectionStore } from "../stores/connection";
+import * as api from "../lib/api";
 
-export function useApi(config: ServerConfig) {
-  const request = useCallback(
-    async (method: string, path: string, body?: unknown) => {
-      const opts: RequestInit = {
-        method,
-        headers: {
-          Authorization: `Bearer ${config.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      };
-      if (body !== undefined) {
-        opts.body = JSON.stringify(body);
-      }
+export function useApi() {
+  const serverUrl = useConnectionStore((s) => s.serverUrl);
+  const apiToken = useConnectionStore((s) => s.apiToken);
 
-      const res = await fetch(`${config.httpUrl}${path}`, opts);
-      const text = await res.text();
-      let parsed: unknown = null;
-      if (text.length > 0) {
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          parsed = text;
-        }
-      }
-      return { status: res.status, body: parsed };
-    },
-    [config],
+  const config: api.ApiConfig = { serverUrl, apiToken };
+
+  const health = useCallback(() => api.fetchHealth(config), [serverUrl, apiToken]);
+  const sessions = useCallback(() => api.fetchSessions(config), [serverUrl, apiToken]);
+  const newSession = useCallback(() => api.createSession(config), [serverUrl, apiToken]);
+  const messages = useCallback(
+    (sessionId: string) => api.fetchMessages(config, sessionId),
+    [serverUrl, apiToken],
+  );
+  const prompt = useCallback(
+    (sessionId: string, text: string) => api.sendPrompt(config, sessionId, text),
+    [serverUrl, apiToken],
+  );
+  const approve = useCallback(
+    (sessionId: string, permId: string) => api.approvePermission(config, sessionId, permId),
+    [serverUrl, apiToken],
+  );
+  const deny = useCallback(
+    (sessionId: string, permId: string) => api.denyPermission(config, sessionId, permId),
+    [serverUrl, apiToken],
+  );
+  const pair = useCallback(
+    (code: string) => api.verifyPairingCode(config, code),
+    [serverUrl, apiToken],
+  );
+  const pushToken = useCallback(
+    (token: string) => api.registerPushToken(config, token),
+    [serverUrl, apiToken],
   );
 
-  /** Create a new session */
-  const createSession = useCallback(async () => {
-    return request("POST", "/sessions");
-  }, [request]);
-
-  /** Send a prompt to a session */
-  const sendPrompt = useCallback(
-    async (sessionId: string, text: string) => {
-      return request("POST", `/sessions/${sessionId}/prompt`, {
-        parts: [{ type: "text", text }],
-      });
-    },
-    [request],
-  );
-
-  /** List sessions */
-  const listSessions = useCallback(async () => {
-    return request("GET", "/sessions");
-  }, [request]);
-
-  /** Get messages for a session */
-  const getMessages = useCallback(
-    async (sessionId: string) => {
-      return request("GET", `/sessions/${sessionId}/messages`);
-    },
-    [request],
-  );
-
-  return { request, createSession, sendPrompt, listSessions, getMessages };
+  return { health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken };
 }

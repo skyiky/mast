@@ -1,36 +1,58 @@
 /**
- * WebSocket hook for receiving streamed events from the orchestrator.
- *
- * Connects to ws://<host>/ws?token=<apiToken> and dispatches events
- * to update the chat message list.
+ * WebSocket hook — connects to the orchestrator and dispatches
+ * events into Zustand stores.
  */
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import type { ServerConfig, ChatMessage, MessagePart } from "../types";
+import { useEffect, useRef, useCallback } from "react";
+import { useConnectionStore } from "../stores/connection";
+import { useSessionStore } from "../stores/sessions";
+import type { MessagePart } from "../stores/sessions";
 
-interface UseWebSocketOptions {
-  config: ServerConfig;
-  onMessage: (updater: (messages: ChatMessage[]) => ChatMessage[]) => void;
-}
+export function useWebSocket() {
+  const wsUrl = useConnectionStore((s) => s.wsUrl);
+  const apiToken = useConnectionStore((s) => s.apiToken);
+  const paired = useConnectionStore((s) => s.paired);
+  const setWsConnected = useConnectionStore((s) => s.setWsConnected);
+  const setDaemonStatus = useConnectionStore((s) => s.setDaemonStatus);
 
-export function useWebSocket({ config, onMessage }: UseWebSocketOptions) {
+  const addMessage = useSessionStore((s) => s.addMessage);
+  const updateLastTextPart = useSessionStore((s) => s.updateLastTextPart);
+  const markMessageComplete = useSessionStore((s) => s.markMessageComplete);
+  const markAllStreamsComplete = useSessionStore((s) => s.markAllStreamsComplete);
+  const addPermission = useSessionStore((s) => s.addPermission);
+  const updatePermission = useSessionStore((s) => s.updatePermission);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+
   const wsRef = useRef<WebSocket | null>(null);
-  const [connected, setConnected] = useState(false);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
-    const url = `${config.wsUrl}/ws?token=${config.apiToken}`;
+    if (!wsUrl || !paired) return;
+
+    const url = `${wsUrl}/ws?token=${apiToken}`;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
       console.log("[ws] connected");
-      setConnected(true);
+      setWsConnected(true);
     };
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === "event") {
-          handleEvent(data.event, onMessage);
+        const data = JSON.parse(event.data as string);
+
+        // Status messages from orchestrator
+        if (data.type === "status") {
+          setDaemonStatus(
+            data.daemonConnected ?? false,
+            data.opencodeReady ?? false,
+          );
+          return;
+        }
+
+        // Event messages relayed from daemon
+        if (data.type === "event" && data.event) {
+          handleEvent(data.event, data.sessionId);
         }
       } catch (err) {
         console.error("[ws] parse error:", err);
@@ -39,9 +61,10 @@ export function useWebSocket({ config, onMessage }: UseWebSocketOptions) {
 
     ws.onclose = () => {
       console.log("[ws] disconnected");
-      setConnected(false);
-      // Reconnect after 2 seconds
-      setTimeout(connect, 2000);
+      setWsConnected(false);
+      markAllStreamsComplete();
+      // Reconnect after 2s
+      reconnectTimer.current = setTimeout(connect, 2000);
     };
 
     ws.onerror = (err) => {
@@ -49,92 +72,100 @@ export function useWebSocket({ config, onMessage }: UseWebSocketOptions) {
     };
 
     wsRef.current = ws;
-  }, [config, onMessage]);
+  }, [wsUrl, apiToken, paired, setWsConnected, setDaemonStatus, markAllStreamsComplete]);
+
+  const handleEvent = useCallback(
+    (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }, sessionId?: string) => {
+      // Normalize: OpenCode uses "properties", our relay normalizes to "data"
+      const props = (event.data ?? event.properties ?? {}) as Record<string, unknown>;
+      const sid = (sessionId ?? props.sessionID ?? "") as string;
+
+      switch (event.type) {
+        case "message.created": {
+          const msg = props.message as { id: string; role: string } | undefined;
+          if (msg && sid) {
+            addMessage(sid, {
+              id: msg.id,
+              role: msg.role as "user" | "assistant",
+              parts: [],
+              streaming: msg.role === "assistant",
+              createdAt: new Date().toISOString(),
+            });
+          }
+          break;
+        }
+
+        case "message.part.created":
+        case "message.part.updated": {
+          const part = props.part as {
+            type: string;
+            content?: string;
+            toolName?: string;
+            toolArgs?: string;
+          } | undefined;
+          const messageID = props.messageID as string | undefined;
+
+          if (part && messageID && sid) {
+            if (part.type === "text" && part.content !== undefined) {
+              updateLastTextPart(sid, messageID, part.content);
+            }
+            // For tool invocations and other part types, we could add
+            // more specific handling here in the future
+          }
+          break;
+        }
+
+        case "message.completed": {
+          const messageID = props.messageID as string | undefined;
+          if (messageID && sid) {
+            markMessageComplete(sid, messageID);
+          }
+          break;
+        }
+
+        case "permission.created": {
+          const perm = props.permission as {
+            id: string;
+            description?: string;
+          } | undefined;
+          if (perm && sid) {
+            addPermission({
+              id: perm.id,
+              sessionId: sid,
+              description: perm.description ?? "Permission requested",
+              status: "pending",
+              createdAt: new Date().toISOString(),
+            });
+          }
+          break;
+        }
+
+        case "permission.updated": {
+          const perm = props.permission as {
+            id: string;
+            status?: string;
+          } | undefined;
+          if (perm) {
+            updatePermission(
+              perm.id,
+              (perm.status as "approved" | "denied") ?? "approved",
+            );
+          }
+          break;
+        }
+      }
+    },
+    [addMessage, updateLastTextPart, markMessageComplete, addPermission, updatePermission],
+  );
 
   useEffect(() => {
     connect();
     return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
     };
   }, [connect]);
-
-  return { connected };
-}
-
-function handleEvent(
-  event: { type: string; data?: unknown },
-  onMessage: (updater: (messages: ChatMessage[]) => ChatMessage[]) => void,
-) {
-  const props = (event as { type: string; data?: unknown; properties?: Record<string, unknown> })
-    .properties as Record<string, unknown> | undefined;
-
-  switch (event.type) {
-    case "message.created": {
-      const msg = props?.message as { id: string; role: string } | undefined;
-      if (msg && msg.role === "assistant") {
-        onMessage((prev) => {
-          // Don't add duplicate
-          if (prev.find((m) => m.id === msg.id)) return prev;
-          return [
-            ...prev,
-            {
-              id: msg.id,
-              role: "assistant" as const,
-              parts: [],
-              streaming: true,
-              createdAt: new Date().toISOString(),
-            },
-          ];
-        });
-      }
-      break;
-    }
-
-    case "message.part.created":
-    case "message.part.updated": {
-      const part = props?.part as { type: string; content?: string } | undefined;
-      const sessionID = props?.sessionID as string | undefined;
-      if (part) {
-        onMessage((prev) => {
-          // Find the last assistant message that's streaming
-          const lastIdx = prev.findLastIndex(
-            (m) => m.role === "assistant" && m.streaming,
-          );
-          if (lastIdx === -1) return prev;
-
-          const updated = [...prev];
-          const message = { ...updated[lastIdx] };
-
-          // For simplicity in Phase 2, we treat text content as a single part
-          // that gets updated (replaced) as streaming progresses
-          if (part.type === "text" && part.content !== undefined) {
-            const textPartIdx = message.parts.findIndex((p) => p.type === "text");
-            const newParts = [...message.parts];
-            if (textPartIdx >= 0) {
-              newParts[textPartIdx] = { type: "text", content: part.content };
-            } else {
-              newParts.push({ type: "text", content: part.content });
-            }
-            message.parts = newParts;
-          }
-
-          updated[lastIdx] = message;
-          return updated;
-        });
-      }
-      break;
-    }
-
-    case "message.completed": {
-      onMessage((prev) => {
-        return prev.map((m) =>
-          m.streaming ? { ...m, streaming: false } : m,
-        );
-      });
-      break;
-    }
-  }
 }

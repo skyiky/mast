@@ -14,6 +14,7 @@
  */
 
 import WebSocket from "ws";
+import QRCode from "qrcode";
 import { generatePairingCode, type PairRequest, type PairResponse } from "@mast/shared";
 import { OpenCodeProcess } from "./opencode-process.js";
 import { Relay } from "./relay.js";
@@ -113,11 +114,29 @@ function runPairingFlow(orchestratorUrl: string): Promise<string> {
       };
       ws.send(JSON.stringify(request));
 
+      // Build QR payload — the mobile app scans this to auto-pair
+      const httpUrl = orchestratorUrl.replace(/^ws/, "http");
+      const qrPayload = JSON.stringify({ url: httpUrl, code });
+
       console.log("");
       console.log("=========================================");
       console.log(`  PAIRING CODE:  ${code}`);
       console.log("  Enter this code on your phone to pair.");
       console.log("=========================================");
+
+      // Display QR code in terminal (async, non-blocking)
+      QRCode.toString(qrPayload, { type: "terminal", small: true })
+        .then((qrString: string) => {
+          console.log("");
+          console.log("  Or scan this QR code with the Mast app:");
+          console.log("");
+          console.log(qrString);
+        })
+        .catch(() => {
+          // QR code display is optional — code entry still works
+          console.log("  (QR code display unavailable)");
+        });
+
       console.log("");
     });
 
