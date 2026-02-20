@@ -27,6 +27,12 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     return true;
   });
 
+  // A part has visible content if it's non-text (tool cards, etc.) or
+  // it's text with actual non-empty content.
+  const hasVisibleContent = visibleParts.some(
+    (part) => part.type !== "text" || part.content,
+  );
+
   return (
     <View
       className={`max-w-[85%] px-4 py-3 my-1 ${
@@ -45,7 +51,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         />
       ))}
 
-      {visibleParts.length === 0 && message.streaming && (
+      {!hasVisibleContent && message.streaming && (
         <Text className="text-gray-400 dark:text-gray-500 text-sm italic">
           Thinking...
         </Text>

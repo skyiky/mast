@@ -32,7 +32,7 @@ export default function SessionRow({ session, onPress }: SessionRowProps) {
           className="text-base font-medium text-gray-900 dark:text-gray-100"
           numberOfLines={1}
         >
-          {session.id.slice(0, 8)}...
+          {session.title || `${session.id.slice(0, 8)}...`}
         </Text>
         {session.lastMessagePreview && (
           <Text

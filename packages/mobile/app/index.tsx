@@ -63,6 +63,7 @@ export default function SessionListScreen() {
       if (res.status === 200 && Array.isArray(res.body)) {
         const mapped: Session[] = res.body.map((s: any) => ({
           id: s.id,
+          title: s.slug ?? s.title ?? undefined,
           createdAt: s.createdAt ?? new Date().toISOString(),
           updatedAt: s.updatedAt ?? s.createdAt ?? new Date().toISOString(),
         }));

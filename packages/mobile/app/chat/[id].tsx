@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSessionStore, type ChatMessage } from "../../src/stores/sessions";
 import { useSettingsStore } from "../../src/stores/settings";
 import { useApi } from "../../src/hooks/useApi";
@@ -29,11 +30,15 @@ export default function ChatScreen() {
   const navigation = useNavigation();
   const api = useApi();
   const flatListRef = useRef<FlatList>(null);
+  const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
 
   const messages = useSessionStore(
     (s) => s.messagesBySession[id ?? ""] ?? EMPTY_MESSAGES,
+  );
+  const session = useSessionStore(
+    (s) => s.sessions.find((sess) => sess.id === id),
   );
   const allPermissions = useSessionStore((s) => s.permissions);
   const permissions = useMemo(
@@ -50,16 +55,19 @@ export default function ChatScreen() {
   // Set header options
   useEffect(() => {
     navigation.setOptions({
-      title: id ? `${id.slice(0, 8)}...` : "Chat",
+      title: session?.title || (id ? `${id.slice(0, 8)}...` : "Chat"),
       headerRight: () => (
-        <TouchableOpacity onPress={toggleVerbosity} className="mr-2">
+        <TouchableOpacity
+          onPress={toggleVerbosity}
+          className="mr-2 h-8 w-12 items-center justify-center"
+        >
           <Text className="text-mast-600 dark:text-mast-400 text-sm font-medium">
             {verbosity === "standard" ? "Full" : "Std"}
           </Text>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, id, verbosity, toggleVerbosity]);
+  }, [navigation, id, session?.title, verbosity, toggleVerbosity]);
 
   // Track active session
   useEffect(() => {
@@ -212,9 +220,12 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 56 + insets.top : 0}
       >
-        <View className="flex-row items-end px-3 py-2 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800">
+        <View
+          className="flex-row items-end px-3 py-2 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800"
+          style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+        >
           <TextInput
             className="flex-1 min-h-[40px] max-h-[100px] bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2.5 mr-2 text-base text-gray-900 dark:text-gray-100"
             value={inputText}

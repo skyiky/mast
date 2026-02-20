@@ -7,6 +7,7 @@ import "../global.css";
 import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   useColorScheme as useNativeWindColorScheme,
   colorScheme as nwColorScheme,
@@ -33,7 +34,7 @@ export default function RootLayout() {
   usePushNotifications();
 
   return (
-    <>
+    <SafeAreaProvider>
       <Stack
         screenOptions={{
           headerStyle: {
@@ -67,6 +68,6 @@ export default function RootLayout() {
         />
       </Stack>
       <StatusBar style={isDark ? "light" : "dark"} />
-    </>
+    </SafeAreaProvider>
   );
 }

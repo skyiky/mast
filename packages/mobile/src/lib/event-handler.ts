@@ -30,6 +30,11 @@ export interface EventHandlerDeps {
     messageId: string,
     text: string,
   ) => void;
+  appendTextDelta: (
+    sessionId: string,
+    messageId: string,
+    delta: string,
+  ) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   addPermission: (perm: PermissionRequest) => void;
   updatePermission: (permId: string, status: "approved" | "denied") => void;
@@ -157,17 +162,22 @@ export function handleWsEvent(
     // -----------------------------------------------------------------
     // message.part.delta — incremental text streaming from OpenCode.
     // Shape: { part?: { messageID, sessionID }, field: "text", delta: "..." }
-    // We append the delta to the existing text part.
+    // We append the delta to the existing text part for real-time
+    // character-by-character streaming in the UI.
     // -----------------------------------------------------------------
     case "message.part.delta": {
-      // Delta events are informational — the full text arrives via
-      // message.part.updated with the complete text. We intentionally
-      // skip processing deltas to avoid double-updating. The final
-      // message.part.updated has the full text.
-      //
-      // If we wanted real-time character-by-character streaming in the
-      // future, we'd handle deltas here. For now, the part.updated
-      // events arrive fast enough.
+      const part = props.part as
+        | { messageID?: string; sessionID?: string }
+        | undefined;
+      const field = props.field as string | undefined;
+      const delta = props.delta as string | undefined;
+
+      const messageID = (part?.messageID ?? props.messageID) as string | undefined;
+      const sid = sessionId ?? (part?.sessionID as string) ?? (props.sessionID as string) ?? "";
+
+      if (field === "text" && delta && messageID && sid) {
+        deps.appendTextDelta(sid, messageID, delta);
+      }
       break;
     }
 

@@ -19,6 +19,8 @@ export interface ChatMessage {
 
 export interface Session {
   id: string;
+  /** Human-readable session name from OpenCode (e.g., "happy-wizard") */
+  title?: string;
   createdAt: string;
   updatedAt: string;
   /** Preview of last message (for session list) */
@@ -58,6 +60,7 @@ interface SessionState {
   addMessage: (sessionId: string, message: ChatMessage) => void;
   updateMessageParts: (sessionId: string, messageId: string, parts: MessagePart[]) => void;
   updateLastTextPart: (sessionId: string, messageId: string, text: string) => void;
+  appendTextDelta: (sessionId: string, messageId: string, delta: string) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   markAllStreamsComplete: () => void;
 
@@ -158,6 +161,43 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               }
             : s,
         ),
+      };
+    }),
+
+  appendTextDelta: (sessionId, messageId, delta) =>
+    set((state) => {
+      const messages = state.messagesBySession[sessionId];
+      if (!messages) return state;
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: messages.map((m) => {
+            if (m.id !== messageId) return m;
+            const newParts = [...m.parts];
+            const textIdx = newParts.findIndex((p) => p.type === "text");
+            if (textIdx >= 0) {
+              newParts[textIdx] = {
+                ...newParts[textIdx],
+                content: newParts[textIdx].content + delta,
+              };
+            } else {
+              newParts.push({ type: "text", content: delta });
+            }
+            return { ...m, parts: newParts };
+          }),
+        },
+        // Update preview
+        sessions: state.sessions.map((s) => {
+          if (s.id !== sessionId) return s;
+          const msg = messages.find((m) => m.id === messageId);
+          const textPart = msg?.parts.find((p) => p.type === "text");
+          const preview = (textPart?.content ?? "") + delta;
+          return {
+            ...s,
+            updatedAt: new Date().toISOString(),
+            lastMessagePreview: preview.slice(0, 80),
+          };
+        }),
       };
     }),
 

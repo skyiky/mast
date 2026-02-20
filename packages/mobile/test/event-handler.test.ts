@@ -18,6 +18,7 @@ function createMockDeps() {
   return {
     addMessage: mock.fn<EventHandlerDeps["addMessage"]>(),
     updateLastTextPart: mock.fn<EventHandlerDeps["updateLastTextPart"]>(),
+    appendTextDelta: mock.fn<EventHandlerDeps["appendTextDelta"]>(),
     markMessageComplete: mock.fn<EventHandlerDeps["markMessageComplete"]>(),
     addPermission: mock.fn<EventHandlerDeps["addPermission"]>(),
     updatePermission: mock.fn<EventHandlerDeps["updatePermission"]>(),
@@ -387,23 +388,133 @@ describe("handleWsEvent", () => {
   });
 
   // ===========================================================================
-  // message.part.delta — currently skipped (full text via part.updated)
+  // message.part.delta — incremental text streaming
   // ===========================================================================
 
   describe("message.part.delta", () => {
-    it("does not call any deps (intentionally skipped)", () => {
+    it("appends text delta to existing message part", () => {
       handleWsEvent(deps, {
         type: "message.part.delta",
         data: {
           part: { messageID: "m1", sessionID: "s1" },
           field: "text",
-          delta: "OK",
+          delta: "Hello",
         },
       });
 
-      assert.equal(deps.addMessage.mock.calls.length, 0);
-      assert.equal(deps.updateLastTextPart.mock.calls.length, 0);
-      assert.equal(deps.markMessageComplete.mock.calls.length, 0);
+      assert.equal(deps.appendTextDelta.mock.calls.length, 1);
+      const [sid, mid, delta] = deps.appendTextDelta.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(delta, "Hello");
+    });
+
+    it("handles multiple consecutive deltas", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1", sessionID: "s1" },
+          field: "text",
+          delta: "Hel",
+        },
+      });
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1", sessionID: "s1" },
+          field: "text",
+          delta: "lo!",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 2);
+      assert.equal(deps.appendTextDelta.mock.calls[0].arguments[2], "Hel");
+      assert.equal(deps.appendTextDelta.mock.calls[1].arguments[2], "lo!");
+    });
+
+    it("uses sessionId parameter over part.sessionID", () => {
+      handleWsEvent(
+        deps,
+        {
+          type: "message.part.delta",
+          data: {
+            part: { messageID: "m1", sessionID: "from-part" },
+            field: "text",
+            delta: "X",
+          },
+        },
+        "from-param",
+      );
+
+      const [sid] = deps.appendTextDelta.mock.calls[0].arguments;
+      assert.equal(sid, "from-param");
+    });
+
+    it("reads messageID from props when not on part", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          messageID: "m1",
+          sessionID: "s1",
+          field: "text",
+          delta: "Y",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 1);
+      assert.equal(deps.appendTextDelta.mock.calls[0].arguments[1], "m1");
+    });
+
+    it("ignores non-text field deltas", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1", sessionID: "s1" },
+          field: "snapshot",
+          delta: "some data",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 0);
+    });
+
+    it("ignores delta without messageID", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          sessionID: "s1",
+          field: "text",
+          delta: "Z",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 0);
+    });
+
+    it("ignores delta without sessionID", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1" },
+          field: "text",
+          delta: "Z",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 0);
+    });
+
+    it("ignores empty delta string", () => {
+      handleWsEvent(deps, {
+        type: "message.part.delta",
+        data: {
+          part: { messageID: "m1", sessionID: "s1" },
+          field: "text",
+          delta: "",
+        },
+      });
+
+      assert.equal(deps.appendTextDelta.mock.calls.length, 0);
     });
   });
 
@@ -700,7 +811,7 @@ describe("handleWsEvent", () => {
       // Empty string is still a valid value
       assert.equal(deps.updateLastTextPart.mock.calls.length, 2);
 
-      // 6. Delta (skipped)
+      // 6. Delta (now processed — appends to text part)
       handleWsEvent(deps, {
         type: "message.part.delta",
         data: {
@@ -709,8 +820,8 @@ describe("handleWsEvent", () => {
           delta: "Hello!",
         },
       });
-      // No new call — deltas are skipped
-      assert.equal(deps.updateLastTextPart.mock.calls.length, 2);
+      assert.equal(deps.appendTextDelta.mock.calls.length, 1);
+      assert.equal(deps.appendTextDelta.mock.calls[0].arguments[2], "Hello!");
 
       // 7. Final text part
       handleWsEvent(deps, {
