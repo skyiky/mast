@@ -1,4 +1,4 @@
-# Railway deployment for Mast orchestrator
+# Azure Container Apps deployment for Mast orchestrator
 # Uses tsx for TypeScript execution (same as dev)
 
 FROM node:24-slim
@@ -15,7 +15,7 @@ COPY packages/orchestrator/ packages/orchestrator/
 # Install dependencies
 RUN npm ci --workspace=packages/orchestrator --workspace=packages/shared
 
-# Expose port (Railway sets PORT env var)
+# Expose port (Azure Container Apps sets PORT env var)
 EXPOSE 3000
 
 # Health check — uses the existing /health endpoint
