@@ -207,6 +207,17 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   // -- Messaging --
 
   sendPrompt(sessionId: string, text: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (session.running) {
+      throw new Error(
+        `Session ${sessionId} already has a running query. ` +
+        `Abort the current query before sending a new prompt.`,
+      );
+    }
+
     // Fire-and-forget — response streams back via events
     this.runQuery(sessionId, text).catch((err) => {
       console.error(`[claude-code-adapter] Query error for session ${sessionId}:`, err);
