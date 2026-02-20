@@ -13,7 +13,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useRouter, useNavigation } from "expo-router";
+import { useRouter, useNavigation, Redirect } from "expo-router";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSessionStore, type Session } from "../src/stores/sessions";
 import { useWebSocket } from "../src/hooks/useWebSocket";
@@ -48,13 +48,6 @@ export default function SessionListScreen() {
       ),
     });
   }, [navigation, router]);
-
-  // Redirect to pairing if not configured
-  useEffect(() => {
-    if (!paired || !serverUrl) {
-      router.replace("/pair");
-    }
-  }, [paired, serverUrl]);
 
   // Load sessions on mount
   useEffect(() => {
@@ -110,8 +103,8 @@ export default function SessionListScreen() {
     [router],
   );
 
-  // Don't render if redirecting to pair
-  if (!paired || !serverUrl) return null;
+  // Redirect to pairing if not configured
+  if (!paired || !serverUrl) return <Redirect href="/pair" />;
 
   return (
     <View className="flex-1 bg-gray-50 dark:bg-gray-950">

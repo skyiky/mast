@@ -197,7 +197,7 @@ export default function PairScreen() {
                 className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 text-base text-gray-900 dark:text-gray-100 mb-6"
                 value={manualUrl}
                 onChangeText={setManualUrl}
-                placeholder="https://your-server.azurecontainerapps.io"
+                placeholder="https://your-server.railway.app"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="none"
                 autoCorrect={false}
