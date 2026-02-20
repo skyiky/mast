@@ -111,7 +111,7 @@ export async function verifyPairingCode(
     config,
     "POST",
     "/pair/verify",
-    { pairingCode: code },
+    { code },
   );
 }
 
