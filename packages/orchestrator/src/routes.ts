@@ -50,7 +50,13 @@ export function createApp(deps: RouteDeps): Hono {
       return { status: 503, body: { error: "Daemon not connected" } };
     }
     try {
-      return await daemonConn.sendRequest(method, path, body, query);
+      const result = await daemonConn.sendRequest(method, path, body, query);
+      // HTTP 204 (No Content) must not have a body — remap to 200 with { ok: true }
+      // to avoid protocol errors from reverse proxies (e.g., Azure Envoy).
+      if (result.status === 204) {
+        return { status: 200, body: { ok: true } };
+      }
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error(`[orchestrator] forward error: ${message}`);

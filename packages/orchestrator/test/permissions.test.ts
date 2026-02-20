@@ -164,7 +164,7 @@ describe("Permission approval flow", () => {
         "/sessions/sess1/prompt",
         { parts: [{ type: "text", text: "run npm test" }] },
       );
-      assert.equal(promptRes.status, 204);
+      assert.equal(promptRes.status, 200);
 
       // Push permission.created SSE event
       stack.fakeOpenCode.pushEvent({
@@ -236,7 +236,7 @@ describe("Permission approval flow", () => {
         "/sessions/sess1/prompt",
         { parts: [{ type: "text", text: "delete all files" }] },
       );
-      assert.equal(promptRes.status, 204);
+      assert.equal(promptRes.status, 200);
 
       // Push permission.created SSE event
       stack.fakeOpenCode.pushEvent({

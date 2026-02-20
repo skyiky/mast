@@ -114,8 +114,8 @@ describe("Relay chain", () => {
     assert.ok(recorded.some((r) => r.path === "/session/sess-42"));
   });
 
-  it("7. POST /sessions/:id/prompt returns 204-equivalent for empty body", async () => {
-    // OpenCode prompt_async returns 204 with empty body
+  it("7. POST /sessions/:id/prompt returns 200 for prompt_async relay", async () => {
+    // OpenCode prompt_async returns 204 with empty body, forward() remaps to 200 with { ok: true }
     stack.fakeOpenCode.handle("POST", "/session/sess-1/prompt_async", {
       status: 204,
       body: null, // empty body
@@ -124,8 +124,8 @@ describe("Relay chain", () => {
     const res = await apiRequest(stack.baseUrl, "POST", "/sessions/sess-1/prompt", {
       parts: [{ type: "text", text: "hello" }],
     });
-    // The relay should successfully return — status will be 204, body will be null
-    assert.equal(res.status, 204);
+    // The relay should successfully return — forward() remaps 204 to 200 with { ok: true }
+    assert.equal(res.status, 200);
   });
 
   it("11. fake OpenCode returning 500 is relayed as 500", async () => {

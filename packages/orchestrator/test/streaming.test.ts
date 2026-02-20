@@ -162,7 +162,7 @@ describe("SSE event streaming", () => {
         "/sessions/sess-1/prompt",
         { parts: [{ type: "text", text: "hello" }] },
       );
-      assert.equal(promptRes.status, 204);
+      assert.equal(promptRes.status, 200);
 
       // Simulate agent responding with SSE events
       stack.fakeOpenCode.pushEvent({

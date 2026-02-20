@@ -105,7 +105,7 @@ describe("Session cache", () => {
       "/sessions/sess-prompt/prompt",
       { parts: [{ type: "text", text: "hello" }] },
     );
-    assert.equal(promptRes.status, 204);
+    assert.equal(promptRes.status, 200);
 
     // Simulate assistant response via SSE
     stack.fakeOpenCode.pushEvent({
