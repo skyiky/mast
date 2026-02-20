@@ -4,6 +4,7 @@ import {
   type HttpResponse,
   type EventMessage,
   type DaemonMessage,
+  type DaemonStatus,
   type HeartbeatAck,
   type SyncRequest,
   type SyncResponse,
@@ -25,6 +26,9 @@ export class DaemonConnection {
 
   /** Callback for forwarding events (e.g., to phone clients) */
   onEvent?: (event: EventMessage) => void;
+
+  /** Callback for daemon status updates */
+  onStatus?: (status: DaemonStatus) => void;
 
   /** Callback for sync responses from daemon */
   onSyncResponse?: (response: SyncResponse) => void;
@@ -130,10 +134,14 @@ export class DaemonConnection {
       }
 
       case "status": {
+        const statusMsg = msg as DaemonStatus;
         console.log(
-          `[orchestrator] daemon status: opencodeReady=${msg.opencodeReady}` +
-            (msg.opencodeVersion ? ` version=${msg.opencodeVersion}` : ""),
+          `[orchestrator] daemon status: opencodeReady=${statusMsg.opencodeReady}` +
+            (statusMsg.opencodeVersion ? ` version=${statusMsg.opencodeVersion}` : ""),
         );
+        if (this.onStatus) {
+          this.onStatus(statusMsg);
+        }
         break;
       }
 

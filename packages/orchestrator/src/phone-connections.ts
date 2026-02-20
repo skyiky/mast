@@ -9,6 +9,12 @@ import type { WebSocket as WsWebSocket } from "ws";
 import WebSocket from "ws";
 import type { EventMessage } from "@mast/shared";
 
+export interface PhoneStatusMessage {
+  type: "status";
+  daemonConnected: boolean;
+  opencodeReady: boolean;
+}
+
 export class PhoneConnectionManager {
   private clients: Set<WsWebSocket> = new Set();
 
@@ -27,6 +33,25 @@ export class PhoneConnectionManager {
     if (this.clients.size === 0) return;
 
     const data = JSON.stringify(event);
+    for (const client of this.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    }
+  }
+
+  /** Send a status message to a single phone client */
+  sendStatus(ws: WsWebSocket, status: PhoneStatusMessage): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(status));
+    }
+  }
+
+  /** Broadcast a status message to all connected phone clients */
+  broadcastStatus(status: PhoneStatusMessage): void {
+    if (this.clients.size === 0) return;
+
+    const data = JSON.stringify(status);
     for (const client of this.clients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(data);

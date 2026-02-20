@@ -4,7 +4,7 @@ import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
 import { HARDCODED_DEVICE_KEY, HARDCODED_API_TOKEN, type EventMessage, type PairRequest } from "@mast/shared";
 import { DaemonConnection } from "./daemon-connection.js";
-import { PhoneConnectionManager } from "./phone-connections.js";
+import { PhoneConnectionManager, type PhoneStatusMessage } from "./phone-connections.js";
 import { createApp } from "./routes.js";
 import type { SessionStore } from "./session-store.js";
 import type { PushNotifier } from "./push-notifications.js";
@@ -38,6 +38,16 @@ export function startServer(
     const pushNotifier = config?.pushNotifier;
     const pairingManager = config?.pairingManager ?? new PairingManager();
     const timestampTracker = new EventTimestampTracker();
+
+    // Track daemon-reported OpenCode status for broadcasting to phones
+    let lastOpencodeReady = false;
+
+    /** Build a status snapshot for phones */
+    const buildPhoneStatus = (): PhoneStatusMessage => ({
+      type: "status",
+      daemonConnected: daemonConnection.isConnected(),
+      opencodeReady: lastOpencodeReady,
+    });
 
     const app = createApp({ daemonConnection, phoneConnections, store, pairingManager });
 
@@ -76,6 +86,12 @@ export function startServer(
           console.error("[orchestrator] sync response processing error:", err);
         });
       }
+    };
+
+    // Wire daemon status updates to phone clients
+    daemonConnection.onStatus = (status) => {
+      lastOpencodeReady = status.opencodeReady;
+      phoneConnections.broadcastStatus(buildPhoneStatus());
     };
 
     // Wire pair_request handling
@@ -141,6 +157,9 @@ export function startServer(
           // Normal authenticated daemon connection
           daemonConnection.setConnection(ws);
 
+          // Notify phones that daemon is now connected
+          phoneConnections.broadcastStatus(buildPhoneStatus());
+
           // Cancel pending daemon-offline push notification
           if (pushNotifier) {
             pushNotifier.handleDaemonReconnect();
@@ -167,6 +186,9 @@ export function startServer(
 
           ws.on("close", () => {
             daemonConnection.clearConnection();
+            lastOpencodeReady = false;
+            // Notify phones that daemon disconnected
+            phoneConnections.broadcastStatus(buildPhoneStatus());
             // Schedule deferred daemon-offline push
             if (pushNotifier) {
               pushNotifier.handleDaemonDisconnect();
@@ -176,6 +198,9 @@ export function startServer(
           ws.on("error", (err) => {
             console.error("[orchestrator] daemon ws error:", err);
             daemonConnection.clearConnection();
+            lastOpencodeReady = false;
+            // Notify phones that daemon disconnected
+            phoneConnections.broadcastStatus(buildPhoneStatus());
             if (pushNotifier) {
               pushNotifier.handleDaemonDisconnect();
             }
@@ -195,6 +220,9 @@ export function startServer(
 
         phoneWss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
           phoneConnections.add(ws);
+
+          // Send current daemon status immediately on connect
+          phoneConnections.sendStatus(ws, buildPhoneStatus());
 
           ws.on("close", () => {
             phoneConnections.remove(ws);

@@ -57,7 +57,7 @@ export default function CodeInput({
 
     // Check if all filled
     const code = newDigits.join("");
-    if (code.length === length && !code.includes("")) {
+    if (code.length === length) {
       Keyboard.dismiss();
       onComplete(code);
     }
