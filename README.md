@@ -103,10 +103,13 @@ Scan the QR code with Expo Go on your phone.
 ### Run tests
 
 ```bash
-npm test
+npm test                                       # all packages
+npm test --workspace=packages/orchestrator     # orchestrator only
+npm test --workspace=packages/daemon           # daemon only
+npm test --workspace=packages/mobile           # mobile event handler only
 ```
 
-110 tests across the orchestrator (95) and daemon (15). Tests use `node:test` with no external framework.
+Tests use `node:test` with no external test framework or dependencies.
 
 ## How It Works
 
@@ -154,4 +157,4 @@ The daemon runs on your dev machine. The mobile app runs on your phone via Expo 
 
 ## License
 
-Private. Not yet open source.
+MIT

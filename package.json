@@ -9,7 +9,7 @@
     "react-dom": "19.1.0"
   },
   "scripts": {
-    "test": "npm test --workspace=packages/orchestrator && npm test --workspace=packages/daemon",
+    "test": "npm test --workspace=packages/orchestrator && npm test --workspace=packages/daemon && npm test --workspace=packages/mobile",
     "lint": "npm run lint:selectors --workspace=packages/mobile",
     "pretest": "npm run lint"
   }

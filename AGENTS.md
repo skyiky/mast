@@ -41,7 +41,7 @@ mast/
 │   ├── src/
 │   │   ├── index.ts                # Entry point — wires store, push, pairing, server
 │   │   ├── server.ts               # HTTP (Hono) + WSS server setup
-│   │   ├── routes.ts               # API routes: /health, /sessions/*, /push/register, /pair/verify
+│   │   ├── routes.ts               # API routes: /health, /sessions/*, /providers, /project/current, /push/register, /pair/verify
 │   │   ├── daemon-connection.ts    # Daemon WSS state, request correlation, timeouts
 │   │   ├── phone-connections.ts    # Phone WSS connection pool, broadcast
 │   │   ├── session-store.ts        # SessionStore interface + InMemorySessionStore
@@ -53,7 +53,7 @@ mast/
 │       ├── helpers.ts              # startTestServer, connectDaemon, connectPhone helpers
 │       ├── fake-opencode.ts        # Mock OpenCode HTTP + SSE server
 │       ├── fake-expo-push.ts       # Mock Expo push notification server
-│       ├── integration.test.ts     # Phase 1: relay chain (19 tests)
+│       ├── integration.test.ts     # Phase 1: relay chain (12 tests)
 │       ├── streaming.test.ts       # Phase 2: SSE event streaming (9 tests)
 │       ├── permissions.test.ts     # Phase 3: permission approval flow (9 tests)
 │       ├── cache.test.ts           # Phase 3: session cache (6 tests)
@@ -88,6 +88,10 @@ mast/
     │   ├── chat/[id].tsx           # Chat screen, streaming messages, send input
     │   ├── pair.tsx                # QR scanner (expo-camera) + manual code entry
     │   └── settings.tsx            # Connection status, verbosity, theme, re-pair
+    ├── scripts/
+    │   └── check-zustand-selectors.mjs  # Lint: detects unstable Zustand selector defaults
+    ├── test/
+    │   └── event-handler.test.ts   # Event handler unit tests (47 tests)
     └── src/
         ├── stores/
         │   ├── connection.ts       # Zustand: serverUrl, apiToken, wsConnected, etc. (persisted)
@@ -98,15 +102,22 @@ mast/
         │   ├── useApi.ts           # Thin hook wrapper for API client
         │   └── usePushNotifications.ts  # Token registration, notification tap handling
         ├── lib/
-        │   └── api.ts              # Non-hook API client (fetch-based, typed)
+        │   ├── api.ts              # Non-hook API client (fetch-based, typed)
+        │   ├── event-handler.ts    # WSS event → Zustand store dispatch
+        │   ├── secure-token.ts     # SecureStore wrapper for API token persistence
+        │   ├── ThemeContext.tsx     # React context for theme (dark/light)
+        │   └── themes.ts           # OLED dark + light theme definitions
         └── components/
-            ├── MessageBubble.tsx    # User/assistant message rendering
-            ├── MarkdownContent.tsx  # EnrichedMarkdownText wrapper with dark mode
-            ├── ToolCallCard.tsx     # Collapsible tool invocation card
-            ├── PermissionCard.tsx   # Approve/deny permission UI
+            ├── AnimatedPressable.tsx  # Reanimated scale-on-press wrapper
+            ├── CodeInput.tsx        # 6-digit pairing code input with auto-advance
             ├── ConnectionBanner.tsx # Top banner for degraded connection states
+            ├── DiffSheet.tsx        # Full-screen diff review modal
+            ├── MarkdownContent.tsx  # react-native-markdown-display wrapper with dark mode
+            ├── MessageBubble.tsx    # User/assistant message rendering
+            ├── PermissionCard.tsx   # Approve/deny permission UI
+            ├── SessionConfigSheet.tsx # Bottom sheet: abort, diff, plan mode, model selector
             ├── SessionRow.tsx       # Session list row with preview + timestamp
-            └── CodeInput.tsx        # 6-digit pairing code input with auto-advance
+            └── ToolCallCard.tsx     # Collapsible tool invocation card
 ```
 
 ## WSS Protocol
@@ -213,9 +224,10 @@ On crash, `onCrash` callback fires. On recovery needed, orchestrator triggers `o
 Tests use `node:test` (built into Node.js 24+). No external test framework.
 
 ```bash
-npm test                    # all 110 tests
-npm test --workspace=packages/orchestrator   # 95 orchestrator tests
-npm test --workspace=packages/daemon         # 15 daemon tests
+npm test                                       # all packages (orchestrator + daemon + mobile)
+npm test --workspace=packages/orchestrator     # orchestrator tests
+npm test --workspace=packages/daemon           # daemon tests
+npm test --workspace=packages/mobile           # mobile event handler tests
 ```
 
 Test infrastructure:
@@ -230,7 +242,7 @@ All tests are self-contained: they start/stop their own servers on random ports.
 - **Routing:** Expo Router (file-based, under `app/`)
 - **Styling:** NativeWind v4 (Tailwind CSS for React Native). Dark mode uses `colorScheme.set()` from `nativewind`, NOT CSS class-based `darkMode: "class"`.
 - **State:** Zustand stores. `connection` and `settings` stores are persisted via AsyncStorage. `sessions` store is not persisted.
-- **Markdown:** `react-native-enriched-markdown` — component is `EnrichedMarkdownText` (named export), props are `markdown` and `markdownStyle`.
+- **Markdown:** `react-native-markdown-display` — default export `Markdown`, children prop is the markdown string, styling via `style` prop.
 - **Push:** `expo-notifications` with `expo-device` for registration. Requires EAS projectId for push tokens.
 - **Haptics:** `expo-haptics` on permission approve/deny and send message.
 
@@ -269,3 +281,5 @@ No row-level security (single-user MVP).
 4. **Expo Router entry** — `package.json` must have `"main": "expo-router/entry"`, not the default Expo entry.
 5. **Prompt format** — OpenCode expects `{ "parts": [{ "type": "text", "text": "..." }] }`, not `{ "content": "..." }`.
 6. **Module system** — all packages use ESM (`"type": "module"`). Imports must include `.js` extensions in TypeScript source files.
+7. **Zustand selectors** — Zustand v5 uses `useSyncExternalStore`. Selectors that return new references on every call (`?? []`, `.filter()`, `.map()`) cause infinite re-renders. Wrap with `useShallow` from `zustand/react/shallow`. A lint guard in `scripts/check-zustand-selectors.mjs` catches common cases.
+8. **Expo Go native modules** — always install with `npx expo install <package>` instead of `npm install` to get Expo Go-compatible versions.

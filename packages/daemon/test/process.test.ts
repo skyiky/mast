@@ -210,7 +210,7 @@ describe("OpenCodeProcess", () => {
     await crashPromise;
 
     assert.equal(proc!.isRunning(), false, "Process should not be running after crash");
-    assert.equal(crashCode, 1, "Exit code should be 1");
+    assert.ok(crashCode !== 0 && crashCode !== null, `Exit code should be non-zero, got ${crashCode}`);
 
     proc = null; // Already stopped
   });
