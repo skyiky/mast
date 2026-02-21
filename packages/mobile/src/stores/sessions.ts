@@ -21,6 +21,8 @@ export interface Session {
   id: string;
   /** Human-readable session name from OpenCode (e.g., "happy-wizard") */
   title?: string;
+  /** Working directory the agent is operating in */
+  directory?: string;
   createdAt: string;
   updatedAt: string;
   /** Preview of last message (for session list) */

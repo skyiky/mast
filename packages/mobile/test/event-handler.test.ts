@@ -348,6 +348,151 @@ describe("handleWsEvent", () => {
       assert.equal(part.content, "ls -la");
     });
 
+    // -----------------------------------------------------------------------
+    // OpenCode v1.x "tool" part type — combines invocation + result in one part
+    // -----------------------------------------------------------------------
+
+    it("processes OpenCode tool part (completed, with output)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool1",
+            tool: "read",
+            callID: "toolu_vrtx_abc123",
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "completed",
+              input: { filePath: "/src/index.ts" },
+              output: "const x = 1;\n",
+              time: { start: 1000, end: 2000 },
+            },
+          },
+        },
+      });
+
+      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
+      const [sid, mid, part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(part.type, "tool-invocation");
+      assert.equal(part.toolName, "read");
+      assert.equal(part.content, "const x = 1;\n");
+      assert.equal(part.toolArgs, JSON.stringify({ filePath: "/src/index.ts" }));
+    });
+
+    it("processes OpenCode tool part (errored)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool2",
+            tool: "bash",
+            callID: "toolu_vrtx_def456",
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "error",
+              input: { command: "rm -rf /important" },
+              error: "Permission denied",
+              time: { start: 1000, end: 2000 },
+            },
+          },
+        },
+      });
+
+      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
+      const [sid, mid, part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(sid, "s1");
+      assert.equal(mid, "m1");
+      assert.equal(part.type, "tool-invocation");
+      assert.equal(part.toolName, "bash");
+      // Error takes priority over output
+      assert.equal(part.content, "Permission denied");
+      assert.equal(part.toolArgs, JSON.stringify({ command: "rm -rf /important" }));
+    });
+
+    it("processes OpenCode tool part with no state (pending tool call)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool3",
+            tool: "glob",
+            callID: "toolu_vrtx_ghi789",
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "running",
+              input: { pattern: "**/*.ts" },
+            },
+          },
+        },
+      });
+
+      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
+      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(part.type, "tool-invocation");
+      assert.equal(part.toolName, "glob");
+      assert.equal(part.content, ""); // No output or error yet
+      assert.equal(part.toolArgs, JSON.stringify({ pattern: "**/*.ts" }));
+    });
+
+    it("processes OpenCode tool part with both output and error (error wins)", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool4",
+            tool: "edit",
+            callID: "toolu_vrtx_jkl012",
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "error",
+              input: { filePath: "/foo.ts", oldString: "a", newString: "b" },
+              output: "partial result",
+              error: "oldString not found",
+            },
+          },
+        },
+      });
+
+      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      // error takes priority
+      assert.equal(part.content, "oldString not found");
+    });
+
+    it("processes OpenCode tool part with no input in state", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool5",
+            tool: "unknown_tool",
+            callID: "toolu_vrtx_mno345",
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "completed",
+              output: "done",
+            },
+          },
+        },
+      });
+
+      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(part.toolName, "unknown_tool");
+      assert.equal(part.content, "done");
+      assert.equal(part.toolArgs, undefined); // No input → no args
+    });
+
     it("ignores without messageID", () => {
       handleWsEvent(deps, {
         type: "message.part.updated",
@@ -864,6 +1009,109 @@ describe("handleWsEvent", () => {
         deps.markMessageComplete.mock.calls[0].arguments[1],
         "msg_asst1",
       );
+    });
+
+    it("processes a tool-using response with OpenCode v1.x part format", () => {
+      // 1. Assistant message created (first message — tool call step)
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "msg_asst1", role: "assistant", sessionID: "s1" },
+        },
+      });
+      assert.equal(deps.addMessage.mock.calls.length, 1);
+
+      // 2. Step-start
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "step-start",
+            id: "prt_ss1",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+          },
+        },
+      });
+
+      // 3. Tool part (OpenCode v1.x format — type: "tool", not "tool-invocation")
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_tool1",
+            tool: "read",
+            callID: "toolu_vrtx_abc",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+            state: {
+              status: "completed",
+              input: { filePath: "/src/app.ts" },
+              output: "export default function App() {}",
+              time: { start: 1000, end: 1500 },
+            },
+          },
+        },
+      });
+      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
+      const toolPart = deps.addPartToMessage.mock.calls[0].arguments[2];
+      assert.equal(toolPart.type, "tool-invocation");
+      assert.equal(toolPart.toolName, "read");
+      assert.equal(toolPart.content, "export default function App() {}");
+
+      // 4. Step-finish for tool call step
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "step-finish",
+            id: "prt_sf1",
+            messageID: "msg_asst1",
+            sessionID: "s1",
+          },
+        },
+      });
+
+      // 5. Second assistant message (final text response)
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: { id: "msg_asst2", role: "assistant", sessionID: "s1" },
+        },
+      });
+      assert.equal(deps.addMessage.mock.calls.length, 2);
+
+      // 6. Text response
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "text",
+            id: "prt_txt1",
+            text: "I read the file. It exports App.",
+            messageID: "msg_asst2",
+            sessionID: "s1",
+            time: { start: 2000, end: 2500 },
+          },
+        },
+      });
+      assert.equal(deps.updateLastTextPart.mock.calls.length, 1);
+
+      // 7. Final message complete
+      handleWsEvent(deps, {
+        type: "message.updated",
+        data: {
+          info: {
+            id: "msg_asst2",
+            role: "assistant",
+            sessionID: "s1",
+            finish: "stop",
+            time: { created: 2000, completed: 2500 },
+          },
+        },
+      });
+      assert.equal(deps.markMessageComplete.mock.calls.length, 1);
     });
   });
 });

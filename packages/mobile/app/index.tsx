@@ -65,10 +65,8 @@ export default function SessionListScreen() {
     try {
       const res = await api.sessions();
       if (res.status === 200 && Array.isArray(res.body)) {
-        // Build a lookup of existing sessions so we can preserve
-        // hasActivity and lastMessagePreview across reloads.
-        // Without this, useFocusEffect would wipe activity flags
-        // every time the user navigates back to this screen.
+        // Read the store AFTER the await so we capture any hasActivity
+        // flags set by WSS events during the network request.
         const existing = new Map(
           useSessionStore.getState().sessions.map((s) => [s.id, s]),
         );
@@ -78,6 +76,7 @@ export default function SessionListScreen() {
           return {
             id: s.id,
             title: s.slug ?? s.title ?? undefined,
+            directory: s.directory ?? prev?.directory,
             createdAt: s.time?.created
               ? new Date(s.time.created).toISOString()
               : s.createdAt ?? new Date().toISOString(),

@@ -52,7 +52,7 @@ export async function fetchHealth(config: ApiConfig) {
 }
 
 export async function fetchSessions(config: ApiConfig) {
-  return request<Array<{ id: string; slug?: string; title?: string; createdAt?: string }>>(
+  return request<Array<{ id: string; slug?: string; title?: string; directory?: string; createdAt?: string }>>(
     config,
     "GET",
     "/sessions",
@@ -152,6 +152,7 @@ export async function fetchProviders(config: ApiConfig) {
 
 export async function fetchProjectCurrent(config: ApiConfig) {
   return request<{
+    worktree?: string;
     path?: string;
     name?: string;
     root?: string;

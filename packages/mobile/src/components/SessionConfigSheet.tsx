@@ -86,7 +86,9 @@ export default function SessionConfigSheet({
   const setSessionMode = useSettingsStore((s) => s.setSessionMode);
 
   // Session data — useShallow prevents infinite re-render from unstable [] reference
-  const sessionCreatedAt = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId)?.createdAt);
+  const session = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId));
+  const sessionCreatedAt = session?.createdAt;
+  const sessionDirectory = session?.directory;
   const messages = useSessionStore(useShallow((s) => s.messagesBySession[sessionId] ?? []));
   const setMessages = useSessionStore((s) => s.setMessages);
   const isStreaming = messages.some((m: ChatMessage) => m.streaming);
@@ -146,10 +148,17 @@ export default function SessionConfigSheet({
 
     api.projectCurrent().then((res) => {
       if (res.status === 200 && res.body) {
-        const p = res.body as { path?: string; root?: string };
-        setProjectPath(p.root ?? p.path ?? null);
+        // OpenCode returns { worktree: "..." }, not { root } or { path }
+        const p = res.body as { worktree?: string; path?: string; root?: string };
+        setProjectPath(p.worktree ?? p.root ?? p.path ?? null);
+      } else if (sessionDirectory) {
+        // Fallback: use directory from session list API
+        setProjectPath(sessionDirectory);
       }
-    }).catch(() => {});
+    }).catch(() => {
+      // API failed — use session directory as fallback
+      if (sessionDirectory) setProjectPath(sessionDirectory);
+    });
 
     // Bug 1 fix: build grouped model list from all[] for connected providers
     api.providers().then((res) => {

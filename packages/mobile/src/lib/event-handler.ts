@@ -204,15 +204,41 @@ export function handleWsEvent(
             deps.updateLastTextPart(sid, messageID, textContent);
           }
         } else if (part.type === "tool-invocation") {
-          // Tool invocation — add as a new part to the message
+          // Legacy tool invocation format (tests / backward compat)
           deps.addPartToMessage(sid, messageID, {
             type: "tool-invocation",
             content: part.text ?? part.content ?? "",
             toolName: part.toolName ?? (part as any).name,
             toolArgs: part.toolArgs ?? ((part as any).args ? JSON.stringify((part as any).args) : undefined),
           });
+        } else if (part.type === "tool") {
+          // OpenCode v1.x tool format — combines invocation + result in one part:
+          //   { type: "tool", tool: "read", callID: "...",
+          //     state: { status, input, output, error, time } }
+          const toolPart = part as Record<string, unknown>;
+          const state = toolPart.state as {
+            status?: string;
+            input?: unknown;
+            output?: string;
+            error?: string;
+          } | undefined;
+          const toolName = (toolPart.tool as string)
+            ?? part.toolName
+            ?? (toolPart.name as string)
+            ?? "tool";
+          const args = state?.input
+            ? JSON.stringify(state.input)
+            : part.toolArgs;
+          // Combine output/error as the result content
+          const result = state?.error ?? state?.output ?? "";
+          deps.addPartToMessage(sid, messageID, {
+            type: "tool-invocation",
+            content: result,
+            toolName,
+            toolArgs: args,
+          });
         }
-        // Other part types (step-start, step-finish, etc.) are ignored.
+        // Other part types (step-start, step-finish, patch, etc.) are ignored.
       }
       break;
     }

@@ -138,14 +138,18 @@ const PartRenderer = React.memo(function PartRenderer({
       return <MarkdownContent content={part.content} />;
 
     case "tool-invocation": {
-      const result = allParts.find(
+      // OpenCode combines invocation + result into one part — the result
+      // is stored in part.content. Also check for a legacy separate
+      // tool-result part for backward compatibility.
+      const legacyResult = allParts.find(
         (p) => p.type === "tool-result" && p.toolName === part.toolName,
       );
+      const result = part.content || legacyResult?.content;
       return (
         <ToolCallCard
           toolName={part.toolName ?? "Tool"}
           args={part.toolArgs}
-          result={result?.content}
+          result={result || undefined}
           collapsed={verbosity === "standard"}
         />
       );
