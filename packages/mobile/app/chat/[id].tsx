@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
+  Keyboard,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useLocalSearchParams, useNavigation } from "expo-router";
@@ -54,6 +55,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const { colors } = useTheme();
 
   const messages = useSessionStore(
@@ -97,6 +99,15 @@ export default function ChatScreen() {
     if (id) setActiveSessionId(id);
     return () => setActiveSessionId(null);
   }, [id, setActiveSessionId]);
+
+  // Track keyboard visibility to avoid double-padding with safe area insets
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   // Load messages from API on mount
   const initialLoadAborted = useRef(false);
@@ -280,7 +291,7 @@ export default function ChatScreen() {
           style={[
             styles.inputBar,
             {
-              paddingBottom: Math.max(insets.bottom, 8),
+              paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 8),
               backgroundColor: colors.surface,
               borderTopColor: colors.border,
             },
@@ -350,6 +361,11 @@ const styles = StyleSheet.create({
     width: 48,
     alignItems: "center",
     justifyContent: "center",
+  },
+  verbosityText: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    textAlign: "center",
   },
   messageWrapper: {
     paddingHorizontal: 12,
