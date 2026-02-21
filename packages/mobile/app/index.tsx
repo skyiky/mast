@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useRouter, useNavigation, Redirect } from "expo-router";
+import { useShallow } from "zustand/react/shallow";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSessionStore, type Session } from "../src/stores/sessions";
 import { useWebSocket } from "../src/hooks/useWebSocket";
@@ -29,7 +30,7 @@ export default function SessionListScreen() {
   const { colors } = useTheme();
   const paired = useConnectionStore((s) => s.paired);
   const serverUrl = useConnectionStore((s) => s.serverUrl);
-  const sessions = useSessionStore((s) => s.sessions);
+  const sessions = useSessionStore(useShallow((s) => s.sessions));
   const setSessions = useSessionStore((s) => s.setSessions);
   const loadingSessions = useSessionStore((s) => s.loadingSessions);
   const setLoadingSessions = useSessionStore((s) => s.setLoadingSessions);

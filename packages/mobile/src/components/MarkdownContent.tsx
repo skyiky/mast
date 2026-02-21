@@ -13,7 +13,7 @@ interface MarkdownContentProps {
   content: string;
 }
 
-export default function MarkdownContent({ content }: MarkdownContentProps) {
+function MarkdownContent({ content }: MarkdownContentProps) {
   const { colors } = useTheme();
 
   const style = useMemo(
@@ -102,3 +102,5 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
 
   return <Markdown style={style}>{content}</Markdown>;
 }
+
+export default React.memo(MarkdownContent);

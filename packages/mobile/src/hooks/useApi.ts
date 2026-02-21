@@ -2,7 +2,7 @@
  * API hook — wraps lib/api.ts with config from Zustand connection store.
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useConnectionStore } from "../stores/connection";
 import * as api from "../lib/api";
 
@@ -60,5 +60,8 @@ export function useApi() {
     [serverUrl, apiToken],
   );
 
-  return { health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert };
+  return useMemo(
+    () => ({ health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert }),
+    [serverUrl, apiToken],
+  );
 }

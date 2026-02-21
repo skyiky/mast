@@ -90,7 +90,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       messagesBySession: { ...state.messagesBySession, [sessionId]: messages },
     })),
 
-  setActiveSessionId: (id) => set({ activeSessionId: id }),
+  setActiveSessionId: (id) =>
+    set((state) => ({
+      activeSessionId: id,
+      // Clear unread activity flag when user opens the session
+      sessions: id
+        ? state.sessions.map((s) =>
+            s.id === id && s.hasActivity ? { ...s, hasActivity: false } : s,
+          )
+        : state.sessions,
+    })),
   setLoadingSessions: (loading) => set({ loadingSessions: loading }),
 
   addMessage: (sessionId, message) =>
@@ -103,17 +112,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
           ...state.messagesBySession,
           [sessionId]: [...existing, message],
         },
-        // Update session preview
+        // Mark session as having unread activity (if not the active session)
         sessions: state.sessions.map((s) =>
-          s.id === sessionId
-            ? {
-                ...s,
-                updatedAt: new Date().toISOString(),
-                lastMessagePreview:
-                  message.parts.find((p) => p.type === "text")?.content?.slice(0, 80) ??
-                  s.lastMessagePreview,
-                hasActivity: s.id !== state.activeSessionId,
-              }
+          s.id === sessionId && s.id !== state.activeSessionId
+            ? { ...s, hasActivity: true }
             : s,
         ),
       };
@@ -159,16 +161,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             return { ...m, parts: newParts };
           }),
         },
-        // Update preview
-        sessions: state.sessions.map((s) =>
-          s.id === sessionId
-            ? {
-                ...s,
-                updatedAt: new Date().toISOString(),
-                lastMessagePreview: text.slice(0, 80),
-              }
-            : s,
-        ),
       };
     }),
 
@@ -194,18 +186,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             return { ...m, parts: newParts };
           }),
         },
-        // Update preview
-        sessions: state.sessions.map((s) => {
-          if (s.id !== sessionId) return s;
-          const msg = messages.find((m) => m.id === messageId);
-          const textPart = msg?.parts.find((p) => p.type === "text");
-          const preview = (textPart?.content ?? "") + delta;
-          return {
-            ...s,
-            updatedAt: new Date().toISOString(),
-            lastMessagePreview: preview.slice(0, 80),
-          };
-        }),
       };
     }),
 

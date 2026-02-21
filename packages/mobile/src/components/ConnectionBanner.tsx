@@ -8,7 +8,7 @@ import { useConnectionStore } from "../stores/connection";
 import { useTheme } from "../lib/ThemeContext";
 import { fonts } from "../lib/themes";
 
-export default function ConnectionBanner() {
+function ConnectionBanner() {
   const { colors } = useTheme();
   const wsConnected = useConnectionStore((s) => s.wsConnected);
   const daemonConnected = useConnectionStore((s) => s.daemonConnected);
@@ -49,3 +49,5 @@ export default function ConnectionBanner() {
     </View>
   );
 }
+
+export default React.memo(ConnectionBanner);

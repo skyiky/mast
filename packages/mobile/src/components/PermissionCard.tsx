@@ -18,7 +18,7 @@ interface PermissionCardProps {
   loading?: boolean;
 }
 
-export default function PermissionCard({
+function PermissionCard({
   permission,
   onApprove,
   onDeny,
@@ -110,6 +110,8 @@ export default function PermissionCard({
     </View>
   );
 }
+
+export default React.memo(PermissionCard);
 
 const styles = StyleSheet.create({
   card: {

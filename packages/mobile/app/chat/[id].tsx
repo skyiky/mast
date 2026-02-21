@@ -62,13 +62,11 @@ export default function ChatScreen() {
   const messages = useSessionStore(
     useShallow((s) => s.messagesBySession[id ?? ""] ?? []),
   );
-  const session = useSessionStore(
-    (s) => s.sessions.find((sess) => sess.id === id),
+  const sessionTitle = useSessionStore(
+    (s) => s.sessions.find((sess) => sess.id === id)?.title,
   );
-  const allPermissions = useSessionStore((s) => s.permissions);
-  const permissions = useMemo(
-    () => allPermissions.filter((p) => p.sessionId === id),
-    [allPermissions, id],
+  const permissions = useSessionStore(
+    useShallow((s) => s.permissions.filter((p) => p.sessionId === id)),
   );
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const setMessages = useSessionStore((s) => s.setMessages);
@@ -80,7 +78,7 @@ export default function ChatScreen() {
   // Set header options — terminal style with config sheet trigger
   useEffect(() => {
     navigation.setOptions({
-      title: session?.title || (id ? `${id.slice(0, 8)}` : "session"),
+      title: sessionTitle || (id ? `${id.slice(0, 8)}` : "session"),
       headerRight: () => (
         <Pressable
           onPress={() => setConfigVisible(true)}
@@ -93,7 +91,7 @@ export default function ChatScreen() {
         </Pressable>
       ),
     });
-  }, [navigation, id, session?.title, colors]);
+  }, [navigation, id, sessionTitle, colors]);
 
   // Track active session
   useEffect(() => {

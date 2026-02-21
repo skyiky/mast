@@ -55,7 +55,7 @@ export default function SessionConfigSheet({
   const setSessionMode = useSettingsStore((s) => s.setSessionMode);
 
   // Session data — useShallow prevents infinite re-render from unstable [] reference
-  const session = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId));
+  const sessionCreatedAt = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId)?.createdAt);
   const messages = useSessionStore(useShallow((s) => s.messagesBySession[sessionId] ?? []));
   const isStreaming = messages.some((m: ChatMessage) => m.streaming);
 
@@ -150,8 +150,8 @@ export default function SessionConfigSheet({
   }, []);
 
   // Format created time
-  const createdAgo = session?.createdAt
-    ? formatTimeAgo(new Date(session.createdAt))
+  const createdAgo = sessionCreatedAt
+    ? formatTimeAgo(new Date(sessionCreatedAt))
     : "unknown";
 
   // Shorten project path for display
