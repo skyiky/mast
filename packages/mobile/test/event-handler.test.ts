@@ -20,6 +20,7 @@ function createMockDeps() {
     updateLastTextPart: mock.fn<EventHandlerDeps["updateLastTextPart"]>(),
     appendTextDelta: mock.fn<EventHandlerDeps["appendTextDelta"]>(),
     addPartToMessage: mock.fn<EventHandlerDeps["addPartToMessage"]>(),
+    upsertToolPart: mock.fn<EventHandlerDeps["upsertToolPart"]>(),
     markMessageComplete: mock.fn<EventHandlerDeps["markMessageComplete"]>(),
     addPermission: mock.fn<EventHandlerDeps["addPermission"]>(),
     updatePermission: mock.fn<EventHandlerDeps["updatePermission"]>(),
@@ -373,14 +374,16 @@ describe("handleWsEvent", () => {
         },
       });
 
-      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
-      const [sid, mid, part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      assert.equal(deps.addPartToMessage.mock.calls.length, 0);
+      const [sid, mid, part] = deps.upsertToolPart.mock.calls[0].arguments;
       assert.equal(sid, "s1");
       assert.equal(mid, "m1");
       assert.equal(part.type, "tool-invocation");
       assert.equal(part.toolName, "read");
       assert.equal(part.content, "const x = 1;\n");
       assert.equal(part.toolArgs, JSON.stringify({ filePath: "/src/index.ts" }));
+      assert.equal(part.callID, "toolu_vrtx_abc123");
     });
 
     it("processes OpenCode tool part (errored)", () => {
@@ -404,8 +407,8 @@ describe("handleWsEvent", () => {
         },
       });
 
-      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
-      const [sid, mid, part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      const [sid, mid, part] = deps.upsertToolPart.mock.calls[0].arguments;
       assert.equal(sid, "s1");
       assert.equal(mid, "m1");
       assert.equal(part.type, "tool-invocation");
@@ -413,6 +416,7 @@ describe("handleWsEvent", () => {
       // Error takes priority over output
       assert.equal(part.content, "Permission denied");
       assert.equal(part.toolArgs, JSON.stringify({ command: "rm -rf /important" }));
+      assert.equal(part.callID, "toolu_vrtx_def456");
     });
 
     it("processes OpenCode tool part with no state (pending tool call)", () => {
@@ -434,12 +438,13 @@ describe("handleWsEvent", () => {
         },
       });
 
-      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
-      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      const [, , part] = deps.upsertToolPart.mock.calls[0].arguments;
       assert.equal(part.type, "tool-invocation");
       assert.equal(part.toolName, "glob");
       assert.equal(part.content, ""); // No output or error yet
       assert.equal(part.toolArgs, JSON.stringify({ pattern: "**/*.ts" }));
+      assert.equal(part.callID, "toolu_vrtx_ghi789");
     });
 
     it("processes OpenCode tool part with both output and error (error wins)", () => {
@@ -463,7 +468,7 @@ describe("handleWsEvent", () => {
         },
       });
 
-      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      const [, , part] = deps.upsertToolPart.mock.calls[0].arguments;
       // error takes priority
       assert.equal(part.content, "oldString not found");
     });
@@ -487,10 +492,114 @@ describe("handleWsEvent", () => {
         },
       });
 
-      const [, , part] = deps.addPartToMessage.mock.calls[0].arguments;
+      const [, , part] = deps.upsertToolPart.mock.calls[0].arguments;
       assert.equal(part.toolName, "unknown_tool");
       assert.equal(part.content, "done");
       assert.equal(part.toolArgs, undefined); // No input → no args
+      assert.equal(part.callID, "toolu_vrtx_mno345");
+    });
+
+    it("callID falls back to part.id when callID is missing", () => {
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_fallback_id",
+            tool: "read",
+            // No callID field
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "completed",
+              input: { filePath: "/a.ts" },
+              output: "content",
+            },
+          },
+        },
+      });
+
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      const [, , part] = deps.upsertToolPart.mock.calls[0].arguments;
+      assert.equal(part.callID, "prt_fallback_id");
+    });
+
+    it("multiple lifecycle updates for same callID call upsertToolPart each time", () => {
+      const callID = "toolu_vrtx_lifecycle";
+
+      // 1. Pending — no input yet
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_lc1",
+            tool: "write",
+            callID,
+            messageID: "m1",
+            sessionID: "s1",
+            state: { status: "pending" },
+          },
+        },
+      });
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      assert.equal(deps.upsertToolPart.mock.calls[0].arguments[2].content, "");
+      assert.equal(deps.upsertToolPart.mock.calls[0].arguments[2].callID, callID);
+
+      // 2. Running — input populated
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_lc1",
+            tool: "write",
+            callID,
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "running",
+              input: { filePath: "/a.txt", content: "hello" },
+            },
+          },
+        },
+      });
+      assert.equal(deps.upsertToolPart.mock.calls.length, 2);
+      assert.equal(
+        deps.upsertToolPart.mock.calls[1].arguments[2].toolArgs,
+        JSON.stringify({ filePath: "/a.txt", content: "hello" }),
+      );
+      assert.equal(deps.upsertToolPart.mock.calls[1].arguments[2].callID, callID);
+
+      // 3. Completed — output populated
+      handleWsEvent(deps, {
+        type: "message.part.updated",
+        data: {
+          part: {
+            type: "tool",
+            id: "prt_lc1",
+            tool: "write",
+            callID,
+            messageID: "m1",
+            sessionID: "s1",
+            state: {
+              status: "completed",
+              input: { filePath: "/a.txt", content: "hello" },
+              output: "File written successfully",
+            },
+            time: { start: 1000, end: 2000 },
+          },
+        },
+      });
+      assert.equal(deps.upsertToolPart.mock.calls.length, 3);
+      assert.equal(
+        deps.upsertToolPart.mock.calls[2].arguments[2].content,
+        "File written successfully",
+      );
+      assert.equal(deps.upsertToolPart.mock.calls[2].arguments[2].callID, callID);
+
+      // addPartToMessage should NEVER have been called for tool parts
+      assert.equal(deps.addPartToMessage.mock.calls.length, 0);
     });
 
     it("ignores without messageID", () => {
@@ -1054,11 +1163,13 @@ describe("handleWsEvent", () => {
           },
         },
       });
-      assert.equal(deps.addPartToMessage.mock.calls.length, 1);
-      const toolPart = deps.addPartToMessage.mock.calls[0].arguments[2];
+      assert.equal(deps.upsertToolPart.mock.calls.length, 1);
+      assert.equal(deps.addPartToMessage.mock.calls.length, 0);
+      const toolPart = deps.upsertToolPart.mock.calls[0].arguments[2];
       assert.equal(toolPart.type, "tool-invocation");
       assert.equal(toolPart.toolName, "read");
       assert.equal(toolPart.content, "export default function App() {}");
+      assert.equal(toolPart.callID, "toolu_vrtx_abc");
 
       // 4. Step-finish for tool call step
       handleWsEvent(deps, {

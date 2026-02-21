@@ -64,6 +64,12 @@ export interface EventHandlerDeps {
     messageId: string,
     part: import("../stores/sessions").MessagePart,
   ) => void;
+  /** Upsert a tool part by callID — updates in-place or appends. */
+  upsertToolPart: (
+    sessionId: string,
+    messageId: string,
+    part: import("../stores/sessions").MessagePart,
+  ) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   addPermission: (perm: PermissionRequest) => void;
   updatePermission: (permId: string, status: "approved" | "denied") => void;
@@ -215,6 +221,8 @@ export function handleWsEvent(
           // OpenCode v1.x tool format — combines invocation + result in one part:
           //   { type: "tool", tool: "read", callID: "...",
           //     state: { status, input, output, error, time } }
+          // OpenCode sends multiple updates per tool call (pending → running →
+          // completed). We upsert by callID to avoid duplicate tool cards.
           const toolPart = part as Record<string, unknown>;
           const state = toolPart.state as {
             status?: string;
@@ -231,11 +239,13 @@ export function handleWsEvent(
             : part.toolArgs;
           // Combine output/error as the result content
           const result = state?.error ?? state?.output ?? "";
-          deps.addPartToMessage(sid, messageID, {
+          const callID = (toolPart.callID as string) ?? partId;
+          deps.upsertToolPart(sid, messageID, {
             type: "tool-invocation",
             content: result,
             toolName,
             toolArgs: args,
+            callID,
           });
         }
         // Other part types (step-start, step-finish, patch, etc.) are ignored.

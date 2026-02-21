@@ -7,6 +7,9 @@ export interface MessagePart {
   toolName?: string;
   /** Tool arguments as JSON string */
   toolArgs?: string;
+  /** OpenCode tool call ID — used to upsert tool parts as they progress
+   *  through lifecycle states (pending → running → completed). */
+  callID?: string;
 }
 
 export interface ChatMessage {
@@ -64,6 +67,11 @@ interface SessionState {
   updateLastTextPart: (sessionId: string, messageId: string, text: string) => void;
   appendTextDelta: (sessionId: string, messageId: string, delta: string) => void;
   addPartToMessage: (sessionId: string, messageId: string, part: MessagePart) => void;
+  /** Upsert a tool part by callID — updates existing part in-place if a
+   *  matching callID is found, otherwise appends as new. This prevents
+   *  duplicate tool cards when OpenCode sends multiple lifecycle updates
+   *  (pending → running → completed) for the same tool call. */
+  upsertToolPart: (sessionId: string, messageId: string, part: MessagePart) => void;
   markMessageComplete: (sessionId: string, messageId: string) => void;
   markAllStreamsComplete: () => void;
 
@@ -200,6 +208,31 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
           ...state.messagesBySession,
           [sessionId]: messages.map((m) => {
             if (m.id !== messageId) return m;
+            return { ...m, parts: [...m.parts, part] };
+          }),
+        },
+      };
+    }),
+
+  upsertToolPart: (sessionId, messageId, part) =>
+    set((state) => {
+      const messages = state.messagesBySession[sessionId];
+      if (!messages) return state;
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: messages.map((m) => {
+            if (m.id !== messageId) return m;
+            if (part.callID) {
+              const idx = m.parts.findIndex((p) => p.callID === part.callID);
+              if (idx >= 0) {
+                // Update existing tool part in-place
+                const newParts = [...m.parts];
+                newParts[idx] = part;
+                return { ...m, parts: newParts };
+              }
+            }
+            // No matching callID found — append as new part
             return { ...m, parts: [...m.parts, part] };
           }),
         },
