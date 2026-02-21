@@ -12,11 +12,10 @@ import {
   StyleSheet,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
-import { useRouter, useNavigation, Redirect } from "expo-router";
+import { useRouter, useNavigation, Redirect, useFocusEffect } from "expo-router";
 import { useShallow } from "zustand/react/shallow";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSessionStore, type Session } from "../src/stores/sessions";
-import { useWebSocket } from "../src/hooks/useWebSocket";
 import { useApi } from "../src/hooks/useApi";
 import { useTheme } from "../src/lib/ThemeContext";
 import { fonts } from "../src/lib/themes";
@@ -39,8 +38,6 @@ export default function SessionListScreen() {
 
   const api = useApi();
 
-  useWebSocket();
-
   // Settings header button — terminal style
   useEffect(() => {
     navigation.setOptions({
@@ -60,12 +57,9 @@ export default function SessionListScreen() {
     });
   }, [navigation, router, colors]);
 
-  useEffect(() => {
-    if (paired && serverUrl) {
-      loadSessions();
-    }
-  }, [paired, serverUrl]);
-
+  // Reload sessions whenever this screen gains focus (e.g., navigating back
+  // from chat). The previous useEffect([paired, serverUrl]) only ran on mount
+  // which missed updates when the Stack navigator kept this screen mounted.
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
@@ -74,8 +68,12 @@ export default function SessionListScreen() {
         const mapped: Session[] = res.body.map((s: any) => ({
           id: s.id,
           title: s.slug ?? s.title ?? undefined,
-          createdAt: s.createdAt ?? new Date().toISOString(),
-          updatedAt: s.updatedAt ?? s.createdAt ?? new Date().toISOString(),
+          createdAt: s.time?.created
+            ? new Date(s.time.created).toISOString()
+            : s.createdAt ?? new Date().toISOString(),
+          updatedAt: s.time?.updated
+            ? new Date(s.time.updated).toISOString()
+            : s.updatedAt ?? s.createdAt ?? new Date().toISOString(),
         }));
         setSessions(mapped);
       }
@@ -85,6 +83,14 @@ export default function SessionListScreen() {
       setLoadingSessions(false);
     }
   }, [api, setSessions, setLoadingSessions]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (paired && serverUrl) {
+        loadSessions();
+      }
+    }, [paired, serverUrl, loadSessions]),
+  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

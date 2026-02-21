@@ -21,6 +21,7 @@ import {
 import { ActivityIndicator, View } from "react-native";
 import { ThemeProvider, useTheme } from "../src/lib/ThemeContext";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
+import { useWebSocket } from "../src/hooks/useWebSocket";
 import { useConnectionStore } from "../src/stores/connection";
 
 function RootNavigator() {
@@ -28,6 +29,11 @@ function RootNavigator() {
 
   // Register for push notifications + handle deep links from notification taps
   usePushNotifications();
+
+  // WebSocket lives here (root navigator) so it persists across all screen
+  // navigation. Previously in index.tsx, which caused the connection to tear
+  // down when navigating to chat and stale connection state on return.
+  useWebSocket();
 
   return (
     <>
