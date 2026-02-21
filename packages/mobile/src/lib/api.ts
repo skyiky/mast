@@ -121,3 +121,49 @@ export async function registerPushToken(
 ) {
   return request(config, "POST", "/push/register", { token });
 }
+
+export async function abortSession(
+  config: ApiConfig,
+  sessionId: string,
+) {
+  return request<boolean>(config, "POST", `/sessions/${sessionId}/abort`);
+}
+
+export async function fetchDiff(
+  config: ApiConfig,
+  sessionId: string,
+) {
+  return request<Array<{
+    path: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+  }>>(config, "GET", `/sessions/${sessionId}/diff`);
+}
+
+export async function fetchProviders(config: ApiConfig) {
+  return request<{
+    all: Record<string, unknown>;
+    default: Record<string, string>;
+    connected: string[];
+  }>(config, "GET", "/providers");
+}
+
+export async function fetchProjectCurrent(config: ApiConfig) {
+  return request<{
+    path?: string;
+    name?: string;
+    root?: string;
+  }>(config, "GET", "/project/current");
+}
+
+export async function revertMessage(
+  config: ApiConfig,
+  sessionId: string,
+  messageId: string,
+) {
+  return request(config, "POST", `/sessions/${sessionId}/revert`, {
+    messageID: messageId,
+  });
+}

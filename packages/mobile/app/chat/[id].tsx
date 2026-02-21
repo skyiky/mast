@@ -18,6 +18,7 @@ import { FlashList } from "@shopify/flash-list";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShallow } from "zustand/react/shallow";
 import { useSessionStore, type ChatMessage } from "../../src/stores/sessions";
 import { useSettingsStore } from "../../src/stores/settings";
 import { useApi } from "../../src/hooks/useApi";
@@ -27,8 +28,7 @@ import ConnectionBanner from "../../src/components/ConnectionBanner";
 import MessageBubble from "../../src/components/MessageBubble";
 import PermissionCard from "../../src/components/PermissionCard";
 import AnimatedPressable from "../../src/components/AnimatedPressable";
-
-const EMPTY_MESSAGES: ChatMessage[] = [];
+import SessionConfigSheet from "../../src/components/SessionConfigSheet";
 
 type RenderItem =
   | { type: "message"; item: ChatMessage }
@@ -56,10 +56,11 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [configVisible, setConfigVisible] = useState(false);
   const { colors } = useTheme();
 
   const messages = useSessionStore(
-    (s) => s.messagesBySession[id ?? ""] ?? EMPTY_MESSAGES,
+    useShallow((s) => s.messagesBySession[id ?? ""] ?? []),
   );
   const session = useSessionStore(
     (s) => s.sessions.find((sess) => sess.id === id),
@@ -74,25 +75,25 @@ export default function ChatScreen() {
   const addMessage = useSessionStore((s) => s.addMessage);
 
   const verbosity = useSettingsStore((s) => s.verbosity);
-  const toggleVerbosity = useSettingsStore((s) => s.toggleVerbosity);
+  const sessionMode = useSettingsStore((s) => s.sessionMode);
 
-  // Set header options — terminal style
+  // Set header options — terminal style with config sheet trigger
   useEffect(() => {
     navigation.setOptions({
       title: session?.title || (id ? `${id.slice(0, 8)}` : "session"),
       headerRight: () => (
         <Pressable
-          onPress={toggleVerbosity}
+          onPress={() => setConfigVisible(true)}
           hitSlop={8}
-          style={styles.verbosityBtn}
+          style={styles.configBtn}
         >
-          <Text style={[styles.verbosityText, { color: colors.accent }]}>
-            {verbosity === "standard" ? "[full]" : "[std]"}
+          <Text style={[styles.configIcon, { color: colors.accent }]}>
+            {"\u22EE"}
           </Text>
         </Pressable>
       ),
     });
-  }, [navigation, id, session?.title, verbosity, toggleVerbosity, colors]);
+  }, [navigation, id, session?.title, colors]);
 
   // Track active session
   useEffect(() => {
@@ -184,14 +185,17 @@ export default function ChatScreen() {
     setInputText("");
     setSending(true);
 
+    // Prepend "PLAN MODE:" when in plan mode
+    const promptText = sessionMode === "plan" ? `PLAN MODE: ${text}` : text;
+
     try {
-      await api.prompt(id, text);
+      await api.prompt(id, promptText);
     } catch (err) {
       console.error("[chat] Failed to send:", err);
     } finally {
       setSending(false);
     }
-  }, [inputText, id, sending, api, addMessage]);
+  }, [inputText, id, sending, api, addMessage, sessionMode]);
 
   const handleApprove = useCallback(
     async (permId: string) => {
@@ -266,7 +270,7 @@ export default function ChatScreen() {
 
   const hasInput = inputText.trim().length > 0;
 
-  return (
+  const chatContent = (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -297,23 +301,23 @@ export default function ChatScreen() {
             },
           ]}
         >
-          {/* > prompt character */}
+          {/* > prompt character (cyan for build, yellow for plan) */}
           <Text
             style={[
               styles.promptChar,
               {
-                color: colors.accent,
+                color: sessionMode === "plan" ? colors.warning : colors.accent,
                 marginBottom: Platform.OS === "ios" ? 8 : 10,
               },
             ]}
           >
-            {">"}
+            {sessionMode === "plan" ? "?" : ">"}
           </Text>
           <TextInput
             style={[styles.textInput, { color: colors.bright }]}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="type a command..."
+            placeholder={sessionMode === "plan" ? "plan a task..." : "type a command..."}
             placeholderTextColor={colors.dim}
             multiline
             returnKeyType="send"
@@ -349,22 +353,35 @@ export default function ChatScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+
+  return (
+    <>
+      {chatContent}
+      {id && (
+        <SessionConfigSheet
+          visible={configVisible}
+          onClose={() => setConfigVisible(false)}
+          sessionId={id}
+        />
+      )}
+    </>
+  );
 }
 
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  verbosityBtn: {
+  configBtn: {
     marginRight: 8,
     height: 44,
-    width: 48,
+    width: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-  verbosityText: {
-    fontFamily: fonts.semibold,
-    fontSize: 13,
+  configIcon: {
+    fontFamily: fonts.bold,
+    fontSize: 22,
     textAlign: "center",
   },
   messageWrapper: {

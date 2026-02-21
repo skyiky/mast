@@ -184,6 +184,33 @@ export function createApp(deps: RouteDeps): Hono {
     return c.json(result.body as object, result.status as 200);
   });
 
+  // --- Provider / project info ---
+
+  // List providers and models
+  app.get("/providers", async (c) => {
+    const result = await forward(daemonConnection, "GET", "/provider");
+    return c.json(result.body as object, result.status as 200);
+  });
+
+  // Get current project info
+  app.get("/project/current", async (c) => {
+    const result = await forward(daemonConnection, "GET", "/project/current");
+    return c.json(result.body as object, result.status as 200);
+  });
+
+  // Revert a message
+  app.post("/sessions/:id/revert", async (c) => {
+    const id = c.req.param("id");
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      // no body is fine
+    }
+    const result = await forward(daemonConnection, "POST", `/session/${id}/revert`, body);
+    return c.json(result.body as object, result.status as 200);
+  });
+
   // --- Permission routes (Phase 3) ---
 
   // Approve a permission

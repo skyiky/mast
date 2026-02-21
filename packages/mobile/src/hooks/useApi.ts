@@ -39,6 +39,26 @@ export function useApi() {
     (token: string) => api.registerPushToken(config, token),
     [serverUrl, apiToken],
   );
+  const abort = useCallback(
+    (sessionId: string) => api.abortSession(config, sessionId),
+    [serverUrl, apiToken],
+  );
+  const diff = useCallback(
+    (sessionId: string) => api.fetchDiff(config, sessionId),
+    [serverUrl, apiToken],
+  );
+  const providers = useCallback(
+    () => api.fetchProviders(config),
+    [serverUrl, apiToken],
+  );
+  const projectCurrent = useCallback(
+    () => api.fetchProjectCurrent(config),
+    [serverUrl, apiToken],
+  );
+  const revert = useCallback(
+    (sessionId: string, messageId: string) => api.revertMessage(config, sessionId, messageId),
+    [serverUrl, apiToken],
+  );
 
-  return { health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken };
+  return { health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert };
 }
