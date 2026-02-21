@@ -353,7 +353,7 @@ export default function ChatScreen() {
   );
 
   return (
-    <>
+    <View style={styles.flex}>
       {chatContent}
       {id && (
         <SessionConfigSheet
@@ -362,7 +362,7 @@ export default function ChatScreen() {
           sessionId={id}
         />
       )}
-    </>
+    </View>
   );
 }
 

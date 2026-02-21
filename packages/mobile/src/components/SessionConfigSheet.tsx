@@ -1,29 +1,34 @@
 /**
  * SessionConfigSheet — Terminal-style bottom sheet for session controls.
  *
+ * Uses @gorhom/bottom-sheet instead of React Native Modal to avoid
+ * hidden Modals stealing the gesture responder (Bug 4) and provides
+ * native swipe-to-dismiss (Bug 5).
+ *
  * Exposed via the `...` icon in chat header. Contains:
  * - Session info (status, project, created, messages)
  * - Verbosity toggle (standard/full)
  * - Mode toggle (build/plan — prepends "PLAN MODE:" to prompts)
  * - Abort button (red, only when agent is working)
  * - View diff (opens DiffSheet modal)
- * - Model selector (dropdown from GET /provider)
- * - Revert last (with confirmation)
- *
- * Uses React Native Modal with slide animation.
+ * - Model selector (filtered to connected providers, deduplicated)
+ * - Revert last (with confirmation + message re-fetch)
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
-  Modal,
   Pressable,
   Alert,
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
 } from "react-native";
+import BottomSheet, {
+  BottomSheetScrollView,
+  BottomSheetBackdrop,
+} from "@gorhom/bottom-sheet";
+import type { BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
 import { useShallow } from "zustand/react/shallow";
 import { useTheme } from "../lib/ThemeContext";
@@ -34,11 +39,24 @@ import { useApi } from "../hooks/useApi";
 import AnimatedPressable from "./AnimatedPressable";
 import DiffSheet from "./DiffSheet";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ModelOption {
+  provider: string;
+  model: string;
+}
+
 interface SessionConfigSheetProps {
   visible: boolean;
   onClose: () => void;
   sessionId: string;
 }
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function SessionConfigSheet({
   visible,
@@ -47,6 +65,10 @@ export default function SessionConfigSheet({
 }: SessionConfigSheetProps) {
   const { colors } = useTheme();
   const api = useApi();
+  const sheetRef = useRef<BottomSheet>(null);
+
+  // Two snap points: 60% default, 90% expanded
+  const snapPoints = useMemo(() => ["60%", "90%"], []);
 
   // Settings
   const verbosity = useSettingsStore((s) => s.verbosity);
@@ -57,19 +79,62 @@ export default function SessionConfigSheet({
   // Session data — useShallow prevents infinite re-render from unstable [] reference
   const sessionCreatedAt = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId)?.createdAt);
   const messages = useSessionStore(useShallow((s) => s.messagesBySession[sessionId] ?? []));
+  const setMessages = useSessionStore((s) => s.setMessages);
   const isStreaming = messages.some((m: ChatMessage) => m.streaming);
 
   // Fetched state
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [diffVisible, setDiffVisible] = useState(false);
 
-  // Fetch project info and provider on open
+  // -----------------------------------------------------------------------
+  // Sheet control
+  // -----------------------------------------------------------------------
+
+  // Open/close the sheet based on the visible prop
+  useEffect(() => {
+    if (visible) {
+      sheetRef.current?.snapToIndex(0);
+    } else {
+      sheetRef.current?.close();
+    }
+  }, [visible]);
+
+  // Notify parent when sheet closes (swipe-down or backdrop tap)
+  const handleSheetChange = useCallback(
+    (index: number) => {
+      if (index === -1) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
+  // Semi-transparent backdrop — tap to close
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.6}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
+
+  // -----------------------------------------------------------------------
+  // Data fetching on open
+  // -----------------------------------------------------------------------
+
   useEffect(() => {
     if (!visible) return;
+
     api.projectCurrent().then((res) => {
       if (res.status === 200 && res.body) {
         const p = res.body as { path?: string; root?: string };
@@ -77,25 +142,40 @@ export default function SessionConfigSheet({
       }
     }).catch(() => {});
 
+    // Bug 1 fix: filter to connected providers only, deduplicate by model name
     api.providers().then((res) => {
       if (res.status === 200 && res.body) {
         const data = res.body as {
           default?: Record<string, string>;
           connected?: string[];
         };
-        // Get current default model
         const defaults = data.default ?? {};
-        const firstModel = Object.values(defaults)[0] ?? null;
-        setModelName(firstModel);
+        const connected = data.connected ?? [];
 
-        // Build list of available models from all defaults
-        const models = Object.values(defaults).filter(Boolean);
-        setAvailableModels(models);
+        const options: ModelOption[] = [];
+        const seenModels = new Set<string>();
+
+        for (const providerId of connected) {
+          const model = defaults[providerId];
+          if (model && !seenModels.has(model)) {
+            seenModels.add(model);
+            options.push({ provider: providerId, model });
+          }
+        }
+
+        setAvailableModels(options);
+        if (options.length > 0 && !modelName) {
+          setModelName(options[0].model);
+        }
       }
     }).catch(() => {});
   }, [visible]);
 
-  // Abort handler
+  // -----------------------------------------------------------------------
+  // Handlers
+  // -----------------------------------------------------------------------
+
+  // Abort
   const handleAbort = useCallback(async () => {
     setAborting(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -108,9 +188,8 @@ export default function SessionConfigSheet({
     }
   }, [api, sessionId]);
 
-  // Revert handler
+  // Bug 2 fix: revert with message re-fetch, loading state, and sheet close
   const handleRevert = useCallback(() => {
-    // Find last assistant message
     const lastAssistant = [...messages]
       .reverse()
       .find((m: ChatMessage) => m.role === "assistant");
@@ -128,25 +207,58 @@ export default function SessionConfigSheet({
           text: "revert",
           style: "destructive",
           onPress: async () => {
+            setReverting(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             try {
               await api.revert(sessionId, lastAssistant.id);
+
+              // Re-fetch messages to sync local state after revert
+              const res = await api.messages(sessionId);
+              if (res.status === 200 && Array.isArray(res.body)) {
+                const mapped: ChatMessage[] = res.body.map((m: any) => {
+                  const info = m.info ?? m;
+                  return {
+                    id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    role: info.role ?? m.role ?? "assistant",
+                    parts: (m.parts ?? [])
+                      .filter((p: any) => {
+                        const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
+                        return kept.includes(p.type);
+                      })
+                      .map((p: any) => ({
+                        type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
+                        content: p.text ?? p.content ?? "",
+                        toolName: p.toolName ?? p.name,
+                        toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
+                      })),
+                    streaming: false,
+                    createdAt: info.time?.created
+                      ? new Date(info.time.created).toISOString()
+                      : m.createdAt ?? new Date().toISOString(),
+                  };
+                });
+                setMessages(sessionId, mapped);
+              }
+
+              // Close sheet after successful revert
+              sheetRef.current?.close();
             } catch (err) {
               console.error("[config] revert failed:", err);
+              Alert.alert("revert failed", "could not revert the last response.");
+            } finally {
+              setReverting(false);
             }
           },
         },
       ],
     );
-  }, [api, sessionId, messages]);
+  }, [api, sessionId, messages, setMessages]);
 
-  // Model select handler
+  // Model select
   const handleModelSelect = useCallback((model: string) => {
     setModelName(model);
     setModelPickerOpen(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Note: model is applied per-prompt in chat screen via settings store
-    // For now we just track it locally — will be sent with next prompt
   }, []);
 
   // Format created time
@@ -159,204 +271,211 @@ export default function SessionConfigSheet({
     ? projectPath.replace(/^\/home\/[^/]+/, "~").replace(/^C:\\Users\\[^\\]+/, "~")
     : "...";
 
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
+
   return (
     <>
-      <Modal
-        visible={visible}
-        transparent
-        animationType="slide"
-        onRequestClose={onClose}
+      <BottomSheet
+        ref={sheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose={true}
+        onChange={handleSheetChange}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{
+          backgroundColor: colors.surface,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: colors.dim,
+          width: 36,
+          height: 4,
+        }}
       >
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <View />
-        </Pressable>
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: colors.surface,
-              borderTopColor: colors.border,
-            },
-          ]}
+        <BottomSheetScrollView
+          style={styles.scrollContent}
+          bounces={false}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Drag handle */}
-          <View style={styles.handleRow}>
-            <View style={[styles.handle, { backgroundColor: colors.dim }]} />
+          {/* // session */}
+          <SectionHeader title="// session" colors={colors} />
+          <View style={[styles.card, { borderColor: colors.border }]}>
+            <InfoRow
+              label="status"
+              value={isStreaming ? "working" : "idle"}
+              dot={isStreaming ? "yellow" : "green"}
+              colors={colors}
+            />
+            <Divider colors={colors} />
+            <InfoRow label="project" value={displayPath} colors={colors} />
+            <Divider colors={colors} />
+            <InfoRow label="created" value={createdAgo} colors={colors} />
+            <Divider colors={colors} />
+            <InfoRow
+              label="messages"
+              value={String(messages.length)}
+              colors={colors}
+            />
           </View>
 
-          <ScrollView
-            style={styles.scrollContent}
-            bounces={false}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* // session */}
-            <SectionHeader title="// session" colors={colors} />
-            <View style={[styles.card, { borderColor: colors.border }]}>
-              <InfoRow
-                label="status"
-                value={isStreaming ? "working" : "idle"}
-                dot={isStreaming ? "yellow" : "green"}
-                colors={colors}
-              />
-              <Divider colors={colors} />
-              <InfoRow label="project" value={displayPath} colors={colors} />
-              <Divider colors={colors} />
-              <InfoRow label="created" value={createdAgo} colors={colors} />
-              <Divider colors={colors} />
-              <InfoRow
-                label="messages"
-                value={String(messages.length)}
-                colors={colors}
-              />
-            </View>
+          {/* // controls */}
+          <SectionHeader title="// controls" colors={colors} />
+          <View style={[styles.card, { borderColor: colors.border }]}>
+            <ToggleRow
+              label="verbosity"
+              options={[
+                { value: "standard" as Verbosity, label: "std" },
+                { value: "full" as Verbosity, label: "full" },
+              ]}
+              selected={verbosity}
+              onSelect={(v) => {
+                setVerbosity(v as Verbosity);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+              colors={colors}
+            />
+            <Divider colors={colors} />
+            <ToggleRow
+              label="mode"
+              options={[
+                { value: "build" as SessionMode, label: "build" },
+                { value: "plan" as SessionMode, label: "plan" },
+              ]}
+              selected={sessionMode}
+              onSelect={(v) => {
+                setSessionMode(v as SessionMode);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+              colors={colors}
+            />
+            <Divider colors={colors} />
 
-            {/* // controls */}
-            <SectionHeader title="// controls" colors={colors} />
-            <View style={[styles.card, { borderColor: colors.border }]}>
-              <ToggleRow
-                label="verbosity"
-                options={[
-                  { value: "standard" as Verbosity, label: "std" },
-                  { value: "full" as Verbosity, label: "full" },
-                ]}
-                selected={verbosity}
-                onSelect={(v) => {
-                  setVerbosity(v as Verbosity);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                colors={colors}
-              />
-              <Divider colors={colors} />
-              <ToggleRow
-                label="mode"
-                options={[
-                  { value: "build" as SessionMode, label: "build" },
-                  { value: "plan" as SessionMode, label: "plan" },
-                ]}
-                selected={sessionMode}
-                onSelect={(v) => {
-                  setSessionMode(v as SessionMode);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                colors={colors}
-              />
-              <Divider colors={colors} />
-
-              {/* Model selector */}
-              <Pressable
-                onPress={() => setModelPickerOpen(!modelPickerOpen)}
-                style={styles.actionRow}
+            {/* Model selector */}
+            <Pressable
+              onPress={() => setModelPickerOpen(!modelPickerOpen)}
+              style={styles.actionRow}
+            >
+              <Text style={[styles.actionLabel, { color: colors.text }]}>
+                model
+              </Text>
+              <Text
+                style={[styles.actionValue, { color: colors.accent }]}
+                numberOfLines={1}
               >
-                <Text style={[styles.actionLabel, { color: colors.text }]}>
-                  model
-                </Text>
-                <Text
-                  style={[styles.actionValue, { color: colors.accent }]}
-                  numberOfLines={1}
-                >
-                  {modelName
-                    ? modelName.split("/").pop() ?? modelName
-                    : "..."}
-                </Text>
-              </Pressable>
+                {modelName
+                  ? modelName.split("/").pop() ?? modelName
+                  : "..."}
+              </Text>
+            </Pressable>
 
-              {/* Model dropdown */}
-              {modelPickerOpen && availableModels.length > 0 && (
-                <View
-                  style={[
-                    styles.dropdown,
-                    { backgroundColor: colors.bg, borderColor: colors.border },
-                  ]}
-                >
-                  {availableModels.map((model) => (
-                    <AnimatedPressable
-                      key={model}
-                      onPress={() => handleModelSelect(model)}
-                      style={[
-                        styles.dropdownItem,
-                        model === modelName && {
-                          backgroundColor: colors.accentDim,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownText,
-                          {
-                            color:
-                              model === modelName ? colors.accent : colors.text,
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {model.split("/").pop() ?? model}
-                      </Text>
-                    </AnimatedPressable>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            {/* // inspect */}
-            <SectionHeader title="// inspect" colors={colors} />
-            <View style={[styles.card, { borderColor: colors.border }]}>
-              <AnimatedPressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setDiffVisible(true);
-                }}
-                style={styles.actionRow}
-              >
-                <Text style={[styles.actionLabel, { color: colors.text }]}>
-                  view diff
-                </Text>
-                <Text style={[styles.chevron, { color: colors.dim }]}>
-                  {"\u2192"}
-                </Text>
-              </AnimatedPressable>
-            </View>
-
-            {/* // actions */}
-            <SectionHeader title="// actions" colors={colors} />
-            <View style={[styles.card, { borderColor: colors.border }]}>
-              {/* Abort — only when streaming */}
-              <AnimatedPressable
-                onPress={handleAbort}
-                disabled={!isStreaming || aborting}
+            {/* Model dropdown — Bug 1 fix: unique keys via provider/model */}
+            {modelPickerOpen && availableModels.length > 0 && (
+              <View
                 style={[
-                  styles.actionRow,
-                  (!isStreaming || aborting) && styles.disabledRow,
+                  styles.dropdown,
+                  { backgroundColor: colors.bg, borderColor: colors.border },
                 ]}
               >
-                {aborting ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.danger}
-                    style={styles.abortSpinner}
-                  />
-                ) : (
-                  <Text
+                {availableModels.map((opt) => (
+                  <AnimatedPressable
+                    key={`${opt.provider}/${opt.model}`}
+                    onPress={() => handleModelSelect(opt.model)}
                     style={[
-                      styles.dangerLabel,
-                      {
-                        color: isStreaming ? colors.danger : colors.dim,
+                      styles.dropdownItem,
+                      opt.model === modelName && {
+                        backgroundColor: colors.accentDim,
                       },
                     ]}
                   >
-                    [abort execution]
-                  </Text>
-                )}
-              </AnimatedPressable>
-              <Divider colors={colors} />
-              {/* Revert */}
-              <AnimatedPressable
-                onPress={handleRevert}
-                disabled={messages.length === 0}
-                style={[
-                  styles.actionRow,
-                  messages.length === 0 && styles.disabledRow,
-                ]}
-              >
+                    <Text
+                      style={[
+                        styles.dropdownText,
+                        {
+                          color:
+                            opt.model === modelName ? colors.accent : colors.text,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {opt.model.split("/").pop() ?? opt.model}
+                    </Text>
+                  </AnimatedPressable>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* // inspect */}
+          <SectionHeader title="// inspect" colors={colors} />
+          <View style={[styles.card, { borderColor: colors.border }]}>
+            <AnimatedPressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setDiffVisible(true);
+              }}
+              style={styles.actionRow}
+            >
+              <Text style={[styles.actionLabel, { color: colors.text }]}>
+                view diff
+              </Text>
+              <Text style={[styles.chevron, { color: colors.dim }]}>
+                {"\u2192"}
+              </Text>
+            </AnimatedPressable>
+          </View>
+
+          {/* // actions */}
+          <SectionHeader title="// actions" colors={colors} />
+          <View style={[styles.card, { borderColor: colors.border }]}>
+            {/* Abort — only when streaming */}
+            <AnimatedPressable
+              onPress={handleAbort}
+              disabled={!isStreaming || aborting}
+              style={[
+                styles.actionRow,
+                (!isStreaming || aborting) && styles.disabledRow,
+              ]}
+            >
+              {aborting ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.danger}
+                  style={styles.spinner}
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.dangerLabel,
+                    {
+                      color: isStreaming ? colors.danger : colors.dim,
+                    },
+                  ]}
+                >
+                  [abort execution]
+                </Text>
+              )}
+            </AnimatedPressable>
+            <Divider colors={colors} />
+            {/* Revert — Bug 2 fix: loading spinner + re-fetch */}
+            <AnimatedPressable
+              onPress={handleRevert}
+              disabled={messages.length === 0 || reverting}
+              style={[
+                styles.actionRow,
+                (messages.length === 0 || reverting) && styles.disabledRow,
+              ]}
+            >
+              {reverting ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.warning}
+                  style={styles.spinner}
+                />
+              ) : (
                 <Text
                   style={[
                     styles.dangerLabel,
@@ -368,21 +487,23 @@ export default function SessionConfigSheet({
                 >
                   [revert last response]
                 </Text>
-              </AnimatedPressable>
-            </View>
+              )}
+            </AnimatedPressable>
+          </View>
 
-            {/* Bottom padding */}
-            <View style={styles.bottomPad} />
-          </ScrollView>
-        </View>
-      </Modal>
+          {/* Bottom padding */}
+          <View style={styles.bottomPad} />
+        </BottomSheetScrollView>
+      </BottomSheet>
 
-      {/* Diff popup */}
-      <DiffSheet
-        visible={diffVisible}
-        onClose={() => setDiffVisible(false)}
-        sessionId={sessionId}
-      />
+      {/* Bug 4 fix: DiffSheet only mounted when visible (no hidden Modal) */}
+      {diffVisible && (
+        <DiffSheet
+          visible={diffVisible}
+          onClose={() => setDiffVisible(false)}
+          sessionId={sessionId}
+        />
+      )}
     </>
   );
 }
@@ -513,22 +634,6 @@ function formatTimeAgo(date: Date): string {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-  },
-  sheet: {
-    borderTopWidth: 1,
-    maxHeight: "75%",
-  },
-  handleRow: {
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-  },
   scrollContent: {
     paddingHorizontal: 0,
   },
@@ -570,7 +675,7 @@ const styles = StyleSheet.create({
   infoValue: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    maxWidth: 200,
+    flexShrink: 1,
   },
   toggleRow: {
     paddingHorizontal: 14,
@@ -625,7 +730,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 13,
   },
-  abortSpinner: {
+  spinner: {
     marginLeft: 0,
   },
   dropdown: {

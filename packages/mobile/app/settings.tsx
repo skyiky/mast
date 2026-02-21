@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   statusValue: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    maxWidth: 200,
+    flexShrink: 1,
   },
   repairBtn: {
     paddingHorizontal: 14,
