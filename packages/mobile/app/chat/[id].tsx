@@ -145,8 +145,18 @@ export default function ChatScreen() {
             };
           });
 
+          // Clear any orphaned streaming flags from a previous WebSocket
+          // session before replacing with API-loaded messages. This fixes
+          // stale loading spinners on old agent messages. If a real stream
+          // is in progress, the WebSocket handler will re-set streaming: true
+          // on the next event.
           const currentMessages = useSessionStore.getState().messagesBySession[id];
-          if (currentMessages?.some((m) => m.streaming)) return;
+          if (currentMessages?.some((m) => m.streaming)) {
+            useSessionStore.getState().setMessages(
+              id,
+              currentMessages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+            );
+          }
 
           setMessages(id, mapped);
         }
@@ -266,6 +276,11 @@ export default function ChatScreen() {
     [colors.border],
   );
 
+  // Handle revert — pre-fill text input with reverted user prompt
+  const handleRevert = useCallback((promptText: string) => {
+    setInputText(promptText);
+  }, []);
+
   const hasInput = inputText.trim().length > 0;
 
   const chatContent = (
@@ -360,6 +375,7 @@ export default function ChatScreen() {
           visible={configVisible}
           onClose={() => setConfigVisible(false)}
           sessionId={id}
+          onRevert={handleRevert}
         />
       )}
     </View>

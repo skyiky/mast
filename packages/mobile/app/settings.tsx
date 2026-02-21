@@ -2,9 +2,11 @@
  * Settings screen — terminal style. Connection status, preferences, re-pair.
  */
 
-import React from "react";
-import { View, Text, ScrollView, Alert, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, ScrollView, Alert, Modal, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 import { useConnectionStore } from "../src/stores/connection";
 import { useSettingsStore, type Verbosity } from "../src/stores/settings";
 import { useTheme } from "../src/lib/ThemeContext";
@@ -14,6 +16,8 @@ import AnimatedPressable from "../src/components/AnimatedPressable";
 export default function SettingsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const [urlPopupVisible, setUrlPopupVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const wsConnected = useConnectionStore((s) => s.wsConnected);
@@ -42,17 +46,28 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleCopyUrl = async () => {
+    if (serverUrl) {
+      await Clipboard.setStringAsync(serverUrl);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <ScrollView style={[styles.screen, { backgroundColor: colors.bg }]}>
       {/* Connection Status */}
       <SectionHeader title="// connection" colors={colors} />
       <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-        <StatusRow
-          label="server"
-          value={serverUrl || "not configured"}
-          status={wsConnected ? "green" : "red"}
-          colors={colors}
-        />
+        <Pressable onPress={() => setUrlPopupVisible(true)}>
+          <StatusRow
+            label="server"
+            value={serverUrl || "not configured"}
+            status={wsConnected ? "green" : "red"}
+            colors={colors}
+          />
+        </Pressable>
         <Divider colors={colors} />
         <StatusRow
           label="daemon"
@@ -109,6 +124,65 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Server URL popup */}
+      <Modal
+        visible={urlPopupVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setUrlPopupVisible(false)}
+      >
+        <Pressable
+          style={styles.popupOverlay}
+          onPress={() => setUrlPopupVisible(false)}
+        >
+          <View
+            style={[
+              styles.popupCard,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.popupLabel, { color: colors.muted }]}>
+              // server url
+            </Text>
+            <Text
+              style={[styles.popupUrl, { color: colors.bright }]}
+              selectable
+            >
+              {serverUrl || "not configured"}
+            </Text>
+            <View style={styles.popupActions}>
+              <AnimatedPressable
+                onPress={handleCopyUrl}
+                style={[
+                  styles.popupBtn,
+                  {
+                    borderColor: copied ? colors.success : colors.accent,
+                    backgroundColor: copied ? colors.successDim : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.popupBtnText,
+                    { color: copied ? colors.success : colors.accent },
+                  ]}
+                >
+                  {copied ? "copied" : "copy"}
+                </Text>
+              </AnimatedPressable>
+              <AnimatedPressable
+                onPress={() => setUrlPopupVisible(false)}
+                style={[styles.popupBtn, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.popupBtnText, { color: colors.muted }]}>
+                  close
+                </Text>
+              </AnimatedPressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -255,6 +329,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 12,
     flexShrink: 1,
+    maxWidth: 180,
   },
   repairBtn: {
     paddingHorizontal: 14,
@@ -301,6 +376,46 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  popupCard: {
+    width: "100%",
+    borderWidth: 1,
+    padding: 20,
+  },
+  popupLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  popupUrl: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  popupActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  popupBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  popupBtnText: {
     fontFamily: fonts.medium,
     fontSize: 12,
   },

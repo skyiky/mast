@@ -43,15 +43,23 @@ import DiffSheet from "./DiffSheet";
 // Types
 // ---------------------------------------------------------------------------
 
-interface ModelOption {
+interface ModelEntry {
+  id: string;
+  name: string;
+}
+
+interface ProviderGroup {
   provider: string;
-  model: string;
+  models: ModelEntry[];
+  defaultModel: string;
 }
 
 interface SessionConfigSheetProps {
   visible: boolean;
   onClose: () => void;
   sessionId: string;
+  /** Called when user reverts — returns the user prompt text to pre-fill */
+  onRevert?: (promptText: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +70,7 @@ export default function SessionConfigSheet({
   visible,
   onClose,
   sessionId,
+  onRevert,
 }: SessionConfigSheetProps) {
   const { colors } = useTheme();
   const api = useApi();
@@ -85,7 +94,7 @@ export default function SessionConfigSheet({
   // Fetched state
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [providerGroups, setProviderGroups] = useState<ProviderGroup[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -142,30 +151,51 @@ export default function SessionConfigSheet({
       }
     }).catch(() => {});
 
-    // Bug 1 fix: filter to connected providers only, deduplicate by model name
+    // Bug 1 fix: build grouped model list from all[] for connected providers
     api.providers().then((res) => {
       if (res.status === 200 && res.body) {
         const data = res.body as {
+          all?: Array<{
+            id: string;
+            models?: Record<string, { name?: string }>;
+          }>;
           default?: Record<string, string>;
           connected?: string[];
         };
+        const allProviders = data.all ?? [];
         const defaults = data.default ?? {};
-        const connected = data.connected ?? [];
+        const connected = new Set(data.connected ?? []);
 
-        const options: ModelOption[] = [];
-        const seenModels = new Set<string>();
+        const groups: ProviderGroup[] = [];
 
-        for (const providerId of connected) {
-          const model = defaults[providerId];
-          if (model && !seenModels.has(model)) {
-            seenModels.add(model);
-            options.push({ provider: providerId, model });
-          }
+        for (const provider of allProviders) {
+          if (!connected.has(provider.id)) continue;
+          const modelsMap = provider.models;
+          if (!modelsMap || typeof modelsMap !== "object") continue;
+
+          const models: ModelEntry[] = Object.entries(modelsMap).map(
+            ([id, info]) => ({
+              id,
+              name: (info && typeof info === "object" && info.name) || id,
+            }),
+          );
+          // Sort alphabetically by display name
+          models.sort((a, b) => a.name.localeCompare(b.name));
+
+          groups.push({
+            provider: provider.id,
+            models,
+            defaultModel: defaults[provider.id] ?? "",
+          });
         }
 
-        setAvailableModels(options);
-        if (options.length > 0 && !modelName) {
-          setModelName(options[0].model);
+        // Sort provider groups: most models first
+        groups.sort((a, b) => b.models.length - a.models.length);
+        setProviderGroups(groups);
+
+        // Set initial selected model to the first connected provider's default
+        if (!modelName && groups.length > 0) {
+          setModelName(groups[0].defaultModel || groups[0].models[0]?.id || null);
         }
       }
     }).catch(() => {});
@@ -188,7 +218,7 @@ export default function SessionConfigSheet({
     }
   }, [api, sessionId]);
 
-  // Bug 2 fix: revert with message re-fetch, loading state, and sheet close
+  // Bug 2 fix: revert removes both messages, pre-fills text box via onRevert
   const handleRevert = useCallback(() => {
     const lastAssistant = [...messages]
       .reverse()
@@ -198,9 +228,20 @@ export default function SessionConfigSheet({
       return;
     }
 
+    // Find the user message that triggered this assistant response
+    const assistantIdx = messages.findIndex((m) => m.id === lastAssistant.id);
+    let userPromptText = "";
+    if (assistantIdx > 0) {
+      const preceding = messages[assistantIdx - 1];
+      if (preceding.role === "user") {
+        const textPart = preceding.parts.find((p) => p.type === "text");
+        userPromptText = textPart?.content ?? "";
+      }
+    }
+
     Alert.alert(
       "revert last response",
-      "this will undo the agent's last response and any file changes it made. continue?",
+      "this will undo the agent's last response and any file changes it made. your prompt will be restored to the input box.",
       [
         { text: "cancel", style: "cancel" },
         {
@@ -212,32 +253,17 @@ export default function SessionConfigSheet({
             try {
               await api.revert(sessionId, lastAssistant.id);
 
-              // Re-fetch messages to sync local state after revert
-              const res = await api.messages(sessionId);
-              if (res.status === 200 && Array.isArray(res.body)) {
-                const mapped: ChatMessage[] = res.body.map((m: any) => {
-                  const info = m.info ?? m;
-                  return {
-                    id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                    role: info.role ?? m.role ?? "assistant",
-                    parts: (m.parts ?? [])
-                      .filter((p: any) => {
-                        const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
-                        return kept.includes(p.type);
-                      })
-                      .map((p: any) => ({
-                        type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
-                        content: p.text ?? p.content ?? "",
-                        toolName: p.toolName ?? p.name,
-                        toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
-                      })),
-                    streaming: false,
-                    createdAt: info.time?.created
-                      ? new Date(info.time.created).toISOString()
-                      : m.createdAt ?? new Date().toISOString(),
-                  };
-                });
-                setMessages(sessionId, mapped);
+              // Remove the assistant message + preceding user message locally
+              const updated = messages.filter((m) => {
+                if (m.id === lastAssistant.id) return false;
+                if (assistantIdx > 0 && m.id === messages[assistantIdx - 1].id && m.role === "user") return false;
+                return true;
+              });
+              setMessages(sessionId, updated);
+
+              // Pre-fill the text box with the reverted user prompt
+              if (userPromptText && onRevert) {
+                onRevert(userPromptText);
               }
 
               // Close sheet after successful revert
@@ -252,14 +278,25 @@ export default function SessionConfigSheet({
         },
       ],
     );
-  }, [api, sessionId, messages, setMessages]);
+  }, [api, sessionId, messages, setMessages, onRevert]);
 
   // Model select
-  const handleModelSelect = useCallback((model: string) => {
-    setModelName(model);
+  const handleModelSelect = useCallback((modelId: string) => {
+    setModelName(modelId);
     setModelPickerOpen(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
+
+  // Look up display name for selected model
+  const selectedModelDisplay = useMemo(() => {
+    if (!modelName) return "...";
+    for (const group of providerGroups) {
+      const found = group.models.find((m) => m.id === modelName);
+      if (found) return found.name;
+    }
+    // Fallback: use the ID itself
+    return modelName;
+  }, [modelName, providerGroups]);
 
   // Format created time
   const createdAgo = sessionCreatedAt
@@ -366,44 +403,60 @@ export default function SessionConfigSheet({
                 style={[styles.actionValue, { color: colors.accent }]}
                 numberOfLines={1}
               >
-                {modelName
-                  ? modelName.split("/").pop() ?? modelName
-                  : "..."}
+                {selectedModelDisplay}
               </Text>
             </Pressable>
 
-            {/* Model dropdown — Bug 1 fix: unique keys via provider/model */}
-            {modelPickerOpen && availableModels.length > 0 && (
+            {/* Model dropdown — grouped by provider */}
+            {modelPickerOpen && providerGroups.length > 0 && (
               <View
                 style={[
                   styles.dropdown,
                   { backgroundColor: colors.bg, borderColor: colors.border },
                 ]}
               >
-                {availableModels.map((opt) => (
-                  <AnimatedPressable
-                    key={`${opt.provider}/${opt.model}`}
-                    onPress={() => handleModelSelect(opt.model)}
-                    style={[
-                      styles.dropdownItem,
-                      opt.model === modelName && {
-                        backgroundColor: colors.accentDim,
-                      },
-                    ]}
-                  >
+                {providerGroups.map((group) => (
+                  <View key={group.provider}>
                     <Text
                       style={[
-                        styles.dropdownText,
-                        {
-                          color:
-                            opt.model === modelName ? colors.accent : colors.text,
-                        },
+                        styles.providerHeader,
+                        { color: colors.muted },
                       ]}
-                      numberOfLines={1}
                     >
-                      {opt.model.split("/").pop() ?? opt.model}
+                      {`// ${group.provider} (${group.models.length})`}
                     </Text>
-                  </AnimatedPressable>
+                    {group.models.map((model) => {
+                      const isSelected = model.id === modelName;
+                      const isDefault = model.id === group.defaultModel;
+                      return (
+                        <AnimatedPressable
+                          key={`${group.provider}/${model.id}`}
+                          onPress={() => handleModelSelect(model.id)}
+                          style={[
+                            styles.dropdownItem,
+                            isSelected && {
+                              backgroundColor: colors.accentDim,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownText,
+                              {
+                                color: isSelected
+                                  ? colors.accent
+                                  : colors.text,
+                              },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {model.name}
+                            {isDefault ? " *" : ""}
+                          </Text>
+                        </AnimatedPressable>
+                      );
+                    })}
+                  </View>
                 ))}
               </View>
             )}
@@ -737,6 +790,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     marginBottom: 10,
     borderWidth: 1,
+  },
+  providerHeader: {
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    letterSpacing: 1,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 4,
   },
   dropdownItem: {
     paddingHorizontal: 14,
