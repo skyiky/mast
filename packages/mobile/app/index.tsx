@@ -65,16 +65,29 @@ export default function SessionListScreen() {
     try {
       const res = await api.sessions();
       if (res.status === 200 && Array.isArray(res.body)) {
-        const mapped: Session[] = res.body.map((s: any) => ({
-          id: s.id,
-          title: s.slug ?? s.title ?? undefined,
-          createdAt: s.time?.created
-            ? new Date(s.time.created).toISOString()
-            : s.createdAt ?? new Date().toISOString(),
-          updatedAt: s.time?.updated
-            ? new Date(s.time.updated).toISOString()
-            : s.updatedAt ?? s.createdAt ?? new Date().toISOString(),
-        }));
+        // Build a lookup of existing sessions so we can preserve
+        // hasActivity and lastMessagePreview across reloads.
+        // Without this, useFocusEffect would wipe activity flags
+        // every time the user navigates back to this screen.
+        const existing = new Map(
+          useSessionStore.getState().sessions.map((s) => [s.id, s]),
+        );
+
+        const mapped: Session[] = res.body.map((s: any) => {
+          const prev = existing.get(s.id);
+          return {
+            id: s.id,
+            title: s.slug ?? s.title ?? undefined,
+            createdAt: s.time?.created
+              ? new Date(s.time.created).toISOString()
+              : s.createdAt ?? new Date().toISOString(),
+            updatedAt: s.time?.updated
+              ? new Date(s.time.updated).toISOString()
+              : s.updatedAt ?? s.createdAt ?? new Date().toISOString(),
+            hasActivity: prev?.hasActivity,
+            lastMessagePreview: prev?.lastMessagePreview,
+          };
+        });
         setSessions(mapped);
       }
     } catch (err) {

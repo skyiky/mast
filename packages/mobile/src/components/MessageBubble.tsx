@@ -76,8 +76,8 @@ function MessageBubbleInner({ message }: MessageBubbleProps) {
           />
         ))}
 
-        {/* Thinking state — blinking-style dots */}
-        {!hasVisibleContent && (
+        {/* Thinking state — only while actively streaming */}
+        {message.streaming && !hasVisibleContent && (
           <View style={styles.thinking}>
             <Text style={[styles.thinkingText, { color: colors.muted }]}>
               ...
