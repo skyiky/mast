@@ -330,13 +330,28 @@ async function cacheEvent(
       // OpenCode shape: data.part = { id, messageID, sessionID, type, text }
       // Legacy shape:   data.messageID + data.part = { type, content }
       const part = data.part as
-        | { type: string; text?: string; content?: string; messageID?: string }
+        | { id?: string; type: string; text?: string; content?: string; messageID?: string }
         | undefined;
       const messageId = (part?.messageID ?? data.messageID) as string | undefined;
       if (messageId && part) {
+        // Skip non-renderable lifecycle parts — they carry no user-visible
+        // content and would overwrite real text/tool parts in the store.
+        if (part.type === "step-start" || part.type === "step-finish") break;
         // Normalize: OpenCode uses "text", legacy uses "content"
         const normalized = { ...part, content: part.text ?? part.content };
-        await store.updateMessageParts(messageId, [normalized]);
+        await store.upsertMessagePart(messageId, normalized as Record<string, unknown>);
+      }
+      break;
+    }
+
+    // Session title/slug updates — OpenCode fires this after auto-titling
+    case "session.updated":
+    case "session.created": {
+      const session = (data.info ?? data) as Record<string, unknown>;
+      const id = (session.id ?? sessionId) as string | undefined;
+      if (id) {
+        const title = (session.slug ?? session.title) as string | undefined;
+        await store.upsertSession({ id, title });
       }
       break;
     }

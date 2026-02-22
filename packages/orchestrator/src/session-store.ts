@@ -51,6 +51,14 @@ export interface SessionStore {
 
   updateMessageParts(id: string, parts: unknown[]): Promise<void>;
 
+  /**
+   * Upsert a single part into a message's parts array.
+   * If a part with the same `id` field already exists, it is replaced in-place.
+   * Otherwise the new part is appended. This prevents the "last write wins"
+   * bug where step-finish events would overwrite text/tool content.
+   */
+  upsertMessagePart(id: string, part: Record<string, unknown>): Promise<void>;
+
   markMessageComplete(id: string): Promise<void>;
 
   getMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -130,6 +138,29 @@ export class InMemorySessionStore implements SessionStore {
     if (msg) {
       this.messages.set(id, { ...msg, parts });
     }
+  }
+
+  async upsertMessagePart(
+    id: string,
+    part: Record<string, unknown>,
+  ): Promise<void> {
+    const msg = this.messages.get(id);
+    if (!msg) return;
+
+    const partId = part.id as string | undefined;
+    if (partId) {
+      const idx = msg.parts.findIndex(
+        (p) => (p as Record<string, unknown>).id === partId,
+      );
+      if (idx >= 0) {
+        msg.parts[idx] = part;
+      } else {
+        msg.parts.push(part);
+      }
+    } else {
+      msg.parts.push(part);
+    }
+    this.messages.set(id, { ...msg, parts: [...msg.parts] });
   }
 
   async markMessageComplete(id: string): Promise<void> {

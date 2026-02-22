@@ -63,6 +63,8 @@ interface SessionState {
 
   // Streaming message updates (called by WebSocket handler)
   addMessage: (sessionId: string, message: ChatMessage) => void;
+  /** Remove a message by ID (e.g. roll back an optimistic send on error). */
+  removeMessage: (sessionId: string, messageId: string) => void;
   updateMessageParts: (sessionId: string, messageId: string, parts: MessagePart[]) => void;
   updateLastTextPart: (sessionId: string, messageId: string, text: string) => void;
   appendTextDelta: (sessionId: string, messageId: string, delta: string) => void;
@@ -128,6 +130,18 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             ? { ...s, hasActivity: true }
             : s,
         ),
+      };
+    }),
+
+  removeMessage: (sessionId, messageId) =>
+    set((state) => {
+      const messages = state.messagesBySession[sessionId];
+      if (!messages) return state;
+      return {
+        messagesBySession: {
+          ...state.messagesBySession,
+          [sessionId]: messages.filter((m) => m.id !== messageId),
+        },
       };
     }),
 

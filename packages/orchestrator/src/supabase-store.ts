@@ -109,6 +109,63 @@ export class SupabaseSessionStore implements SessionStore {
     }
   }
 
+  async upsertMessagePart(
+    id: string,
+    part: Record<string, unknown>,
+  ): Promise<void> {
+    // Read current parts from DB
+    const { data, error: readErr } = await this.client
+      .from("messages")
+      .select("parts")
+      .eq("id", id)
+      .single();
+
+    if (readErr || !data) {
+      // Message may not exist yet (race with addMessage). Silently skip.
+      if (readErr && readErr.code !== "PGRST116") {
+        console.error("[supabase] upsertMessagePart read error:", readErr.message);
+      }
+      return;
+    }
+
+    let parts: unknown[];
+    if (typeof data.parts === "string") {
+      try {
+        parts = JSON.parse(data.parts);
+      } catch {
+        parts = [];
+      }
+    } else if (Array.isArray(data.parts)) {
+      parts = data.parts;
+    } else {
+      parts = [];
+    }
+
+    // Upsert by part.id if present
+    const partId = part.id as string | undefined;
+    if (partId) {
+      const idx = parts.findIndex(
+        (p) => (p as Record<string, unknown>).id === partId,
+      );
+      if (idx >= 0) {
+        parts[idx] = part;
+      } else {
+        parts.push(part);
+      }
+    } else {
+      parts.push(part);
+    }
+
+    const { error: writeErr } = await this.client
+      .from("messages")
+      .update({ parts: JSON.stringify(parts) })
+      .eq("id", id);
+
+    if (writeErr) {
+      console.error("[supabase] upsertMessagePart write error:", writeErr.message);
+    }
+  }
+
   async markMessageComplete(id: string): Promise<void> {
     const { error } = await this.client
       .from("messages")

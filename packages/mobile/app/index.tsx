@@ -10,6 +10,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useRouter, useNavigation, Redirect, useFocusEffect } from "expo-router";
@@ -117,6 +118,9 @@ export default function SessionListScreen() {
       if (res.status === 200 && res.body) {
         const session = res.body as { id: string };
         router.push(`/chat/${session.id}`);
+      } else if (res.status >= 400) {
+        const msg = (res.body as any)?.error ?? "Failed to create session";
+        Alert.alert("Error", msg);
       }
     } catch (err) {
       console.error("[sessions] Failed to create:", err);

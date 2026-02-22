@@ -70,6 +70,15 @@ export function createApp(deps: RouteDeps): Hono {
   app.get("/sessions", async (c) => {
     if (daemonConnection.isConnected()) {
       const result = await forward(daemonConnection, "GET", "/session");
+      // Side-effect: cache session metadata (titles) for offline fallback
+      if (store && result.status === 200 && Array.isArray(result.body)) {
+        for (const s of result.body as Array<Record<string, unknown>>) {
+          store.upsertSession({
+            id: s.id as string,
+            title: (s.slug ?? s.title) as string | undefined,
+          }).catch(() => {});
+        }
+      }
       return c.json(result.body as object, result.status as 200);
     }
     // Daemon offline — serve from cache
@@ -91,8 +100,8 @@ export function createApp(deps: RouteDeps): Hono {
     const result = await forward(daemonConnection, "POST", "/session", body);
     // Cache the session
     if (store && result.status === 200 && result.body) {
-      const session = result.body as { id: string };
-      store.upsertSession({ id: session.id }).catch(() => {});
+      const session = result.body as { id: string; slug?: string; title?: string };
+      store.upsertSession({ id: session.id, title: session.slug ?? session.title }).catch(() => {});
     }
     return c.json(result.body as object, result.status as 200);
   });

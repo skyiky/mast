@@ -32,8 +32,12 @@ export async function processSyncResponse(
   phoneConnections: PhoneConnectionManager,
 ): Promise<void> {
   for (const session of response.sessions) {
-    // Upsert session in case it's new
-    await store.upsertSession({ id: session.id });
+    // Upsert session in case it's new — include title if available
+    const sess = session as Record<string, unknown>;
+    await store.upsertSession({
+      id: session.id,
+      title: (sess.slug ?? sess.title) as string | undefined,
+    });
 
     for (const msg of session.messages) {
       // Add the missed message

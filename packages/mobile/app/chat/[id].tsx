@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Keyboard,
+  Alert,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useLocalSearchParams, useNavigation } from "expo-router";
@@ -71,6 +72,7 @@ export default function ChatScreen() {
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const setMessages = useSessionStore((s) => s.setMessages);
   const addMessage = useSessionStore((s) => s.addMessage);
+  const removeMessage = useSessionStore((s) => s.removeMessage);
 
   const verbosity = useSettingsStore((s) => s.verbosity);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
@@ -197,13 +199,24 @@ export default function ChatScreen() {
     const promptText = sessionMode === "plan" ? `PLAN MODE: ${text}` : text;
 
     try {
-      await api.prompt(id, promptText);
+      const result = await api.prompt(id, promptText);
+      if (result.status >= 400) {
+        // Remove the optimistic user message — it was never delivered
+        removeMessage(id, userMessage.id);
+        const errBody = result.body as { error?: string } | null;
+        Alert.alert(
+          "Send failed",
+          errBody?.error ?? `Server returned ${result.status}`,
+        );
+      }
     } catch (err) {
+      removeMessage(id, userMessage.id);
+      Alert.alert("Send failed", "Could not reach the server.");
       console.error("[chat] Failed to send:", err);
     } finally {
       setSending(false);
     }
-  }, [inputText, id, sending, api, addMessage, sessionMode]);
+  }, [inputText, id, sending, api, addMessage, removeMessage, sessionMode]);
 
   const handleApprove = useCallback(
     async (permId: string) => {

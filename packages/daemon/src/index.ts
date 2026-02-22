@@ -24,6 +24,9 @@ const ORCHESTRATOR_URL =
   process.env.MAST_ORCHESTRATOR_URL ?? "ws://localhost:3000";
 const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT ?? "4096", 10);
 
+// Make the daemon identifiable in process lists (instead of generic "node.exe")
+process.title = "mast-daemon";
+
 async function main() {
   console.log("Mast daemon starting...");
 
