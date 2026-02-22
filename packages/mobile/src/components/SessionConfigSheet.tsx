@@ -38,6 +38,7 @@ import { useSessionStore, type ChatMessage } from "../stores/sessions";
 import { useApi } from "../hooks/useApi";
 import AnimatedPressable from "./AnimatedPressable";
 import DiffSheet from "./DiffSheet";
+import { SectionHeader, Divider } from "./SectionHeader";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -574,26 +575,6 @@ export default function SessionConfigSheet({
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionHeader({
-  title,
-  colors,
-}: {
-  title: string;
-  colors: ThemeColors;
-}) {
-  return (
-    <Text style={[styles.sectionHeader, { color: colors.muted }]}>
-      {title}
-    </Text>
-  );
-}
-
-function Divider({ colors }: { colors: ThemeColors }) {
-  return (
-    <View style={[styles.divider, { backgroundColor: colors.border }]} />
-  );
-}
-
 function InfoRow({
   label,
   value,
@@ -699,22 +680,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 0,
   },
-  sectionHeader: {
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    letterSpacing: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 6,
-    marginTop: 2,
-  },
   card: {
     marginHorizontal: 14,
     borderWidth: 1,
     marginBottom: 8,
-  },
-  divider: {
-    height: 1,
-    marginLeft: 14,
   },
   infoRow: {
     flexDirection: "row",

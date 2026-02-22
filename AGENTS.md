@@ -78,10 +78,8 @@ mast/
 │
 └── packages/mobile/                # @mast/mobile
     ├── app.json                    # Expo config (scheme: "mast")
-    ├── babel.config.js             # NativeWind JSX import source
-    ├── metro.config.js             # withNativeWind(config, { input: "./global.css" })
-    ├── tailwind.config.js          # nativewind/preset, custom "mast" color palette
-    ├── global.css                  # Tailwind directives
+    ├── babel.config.js             # babel-preset-expo
+    ├── metro.config.js             # Metro config with monorepo support
     ├── app/                        # Expo Router file-based routing
     │   ├── _layout.tsx             # Root stack, dark mode, push notification setup
     │   ├── index.tsx               # Session list, pull-to-refresh, FAB
@@ -240,7 +238,7 @@ All tests are self-contained: they start/stop their own servers on random ports.
 ## Mobile Tech Details
 
 - **Routing:** Expo Router (file-based, under `app/`)
-- **Styling:** NativeWind v4 (Tailwind CSS for React Native). Dark mode uses `colorScheme.set()` from `nativewind`, NOT CSS class-based `darkMode: "class"`.
+- **Styling:** React Native `StyleSheet.create()` with a custom theme system (`src/lib/ThemeContext.tsx` + `src/lib/themes.ts`). Components access colors via `useTheme()` hook.
 - **State:** Zustand stores. `connection` and `settings` stores are persisted via AsyncStorage. `sessions` store is not persisted.
 - **Markdown:** `react-native-markdown-display` — default export `Markdown`, children prop is the markdown string, styling via `style` prop.
 - **Push:** `expo-notifications` with `expo-device` for registration. Requires EAS projectId for push tokens.
@@ -277,9 +275,8 @@ No row-level security (single-user MVP).
 
 1. **Empty response bodies** — `prompt_async` returns HTTP 204 with no body. Guard against `JSON.parse("")`.
 2. **SSE `properties` vs `data`** — OpenCode SSE events have a `properties` field, not `data`. The daemon normalizes this.
-3. **NativeWind dark mode** — do NOT add `darkMode: "class"` to tailwind.config.js. NativeWind handles this internally.
-4. **Expo Router entry** — `package.json` must have `"main": "expo-router/entry"`, not the default Expo entry.
-5. **Prompt format** — OpenCode expects `{ "parts": [{ "type": "text", "text": "..." }] }`, not `{ "content": "..." }`.
-6. **Module system** — all packages use ESM (`"type": "module"`). Imports must include `.js` extensions in TypeScript source files.
-7. **Zustand selectors** — Zustand v5 uses `useSyncExternalStore`. Selectors that return new references on every call (`?? []`, `.filter()`, `.map()`) cause infinite re-renders. Wrap with `useShallow` from `zustand/react/shallow`. A lint guard in `scripts/check-zustand-selectors.mjs` catches common cases.
-8. **Expo Go native modules** — always install with `npx expo install <package>` instead of `npm install` to get Expo Go-compatible versions.
+3. **Expo Router entry** — `package.json` must have `"main": "expo-router/entry"`, not the default Expo entry.
+4. **Prompt format** — OpenCode expects `{ "parts": [{ "type": "text", "text": "..." }] }`, not `{ "content": "..." }`.
+5. **Module system** — all packages use ESM (`"type": "module"`). Imports must include `.js` extensions in TypeScript source files.
+6. **Zustand selectors** — Zustand v5 uses `useSyncExternalStore`. Selectors that return new references on every call (`?? []`, `.filter()`, `.map()`) cause infinite re-renders. Wrap with `useShallow` from `zustand/react/shallow`. A lint guard in `scripts/check-zustand-selectors.mjs` catches common cases.
+7. **Expo Go native modules** — always install with `npx expo install <package>` instead of `npm install` to get Expo Go-compatible versions.

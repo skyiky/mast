@@ -215,7 +215,7 @@ export default function DiffSheet({
                     horizontal
                     style={[
                       styles.patchScroll,
-                      { backgroundColor: colors.bg },
+                      { backgroundColor: colors.bg, borderTopColor: colors.border },
                     ]}
                   >
                     <View style={styles.patchContent}>
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   patchScroll: {
     maxHeight: 300,
     borderTopWidth: 1,
-    borderTopColor: "#262626",
+    borderTopColor: undefined, // set via inline style with colors.border
   },
   patchContent: {
     padding: 10,

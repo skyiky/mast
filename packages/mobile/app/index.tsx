@@ -287,7 +287,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   configBtn: {
-    marginRight: 8,
     minHeight: 44,
     minWidth: 44,
     alignItems: "center",

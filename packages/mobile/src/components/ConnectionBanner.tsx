@@ -3,7 +3,7 @@
  */
 
 import React from "react";
-import { View, Text } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useConnectionStore } from "../stores/connection";
 import { useTheme } from "../lib/ThemeContext";
 import { fonts } from "../lib/themes";
@@ -35,19 +35,24 @@ function ConnectionBanner() {
   }
 
   return (
-    <View style={{ backgroundColor: bgColor, paddingHorizontal: 14, paddingVertical: 6 }}>
-      <Text
-        style={{
-          fontFamily: fonts.regular,
-          fontSize: 11,
-          color: fgColor,
-          textAlign: "center",
-        }}
-      >
+    <View style={[styles.banner, { backgroundColor: bgColor }]}>
+      <Text style={[styles.bannerText, { color: fgColor }]}>
         {message}
       </Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  banner: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  bannerText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    textAlign: "center",
+  },
+});
 
 export default React.memo(ConnectionBanner);

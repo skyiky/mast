@@ -1,7 +1,7 @@
 /**
  * ToolCallCard — Terminal-style compact tool invocation display.
- * Collapsed: one-liner `[tool] toolName ✓`
- * Expanded: monospace args/result
+ * Collapsed: one-liner `[tool] toolName checkmark`
+ * Expanded: monospace args/result with show more/less for long results
  */
 
 import React, { useState } from "react";
@@ -10,6 +10,8 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "../lib/ThemeContext";
 import { fonts } from "../lib/themes";
 import AnimatedPressable from "./AnimatedPressable";
+
+const RESULT_TRUNCATE_LENGTH = 500;
 
 interface ToolCallCardProps {
   toolName: string;
@@ -25,12 +27,25 @@ export default function ToolCallCard({
   collapsed: initialCollapsed = true,
 }: ToolCallCardProps) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [resultExpanded, setResultExpanded] = useState(false);
   const { colors } = useTheme();
 
   const toggle = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCollapsed(!collapsed);
   };
+
+  const toggleResult = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setResultExpanded(!resultExpanded);
+  };
+
+  const isResultLong = result != null && result.length > RESULT_TRUNCATE_LENGTH;
+  const displayResult = result
+    ? isResultLong && !resultExpanded
+      ? result.slice(0, RESULT_TRUNCATE_LENGTH)
+      : result
+    : undefined;
 
   return (
     <View style={styles.wrapper}>
@@ -53,7 +68,7 @@ export default function ToolCallCard({
         </Text>
         {result && (
           <Text style={[styles.checkmark, { color: colors.success }]}>
-            ✓
+            {"\u2713"}
           </Text>
         )}
       </AnimatedPressable>
@@ -70,14 +85,21 @@ export default function ToolCallCard({
               </Text>
             </View>
           )}
-          {result && (
+          {displayResult != null && (
             <View>
               <Text style={[styles.sectionLabel, { color: colors.dim }]}>
                 result
               </Text>
               <Text style={[styles.resultContent, { color: colors.success }]}>
-                {result.length > 500 ? result.slice(0, 500) + "..." : result}
+                {displayResult}
               </Text>
+              {isResultLong && (
+                <AnimatedPressable onPress={toggleResult} style={styles.showMore}>
+                  <Text style={[styles.showMoreText, { color: colors.accent }]}>
+                    {resultExpanded ? "[show less]" : "[show more]"}
+                  </Text>
+                </AnimatedPressable>
+              )}
             </View>
           )}
         </View>
@@ -142,6 +164,15 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     lineHeight: 16,
+  },
+  showMore: {
+    marginTop: 4,
+    minHeight: 28,
+    justifyContent: "center",
+  },
+  showMoreText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
   },
 });
 

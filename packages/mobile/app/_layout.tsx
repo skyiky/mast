@@ -3,8 +3,6 @@
  * Dark-only terminal aesthetic. JetBrains Mono loaded here.
  */
 
-import "../global.css";
-
 import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -39,6 +37,8 @@ function RootNavigator() {
     <>
       <Stack
         screenOptions={{
+          animation: "fade",
+          animationDuration: 200,
           headerStyle: {
             backgroundColor: colors.surface,
           },
@@ -51,11 +51,17 @@ function RootNavigator() {
       >
         <Stack.Screen
           name="index"
-          options={{ title: "mast" }}
+          options={{
+            title: "mast",
+            headerRightContainerStyle: { paddingRight: 8, justifyContent: "center" },
+          }}
         />
         <Stack.Screen
           name="chat/[id]"
-          options={{ title: "session" }}
+          options={{
+            title: "session",
+            headerRightContainerStyle: { paddingRight: 8, justifyContent: "center" },
+          }}
         />
         <Stack.Screen
           name="pair"
@@ -93,6 +99,7 @@ export default function RootLayout() {
 
   if (!fontsLoaded || !tokenLoaded) {
     return (
+      {/* Hardcoded colors: ThemeProvider not mounted yet. Must match themes.ts bg/success. */}
       <View style={{ flex: 1, backgroundColor: "#0A0A0A", alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color="#22C55E" />
       </View>

@@ -12,6 +12,7 @@ import { useSettingsStore, type Verbosity } from "../src/stores/settings";
 import { useTheme } from "../src/lib/ThemeContext";
 import { type ThemeColors, fonts } from "../src/lib/themes";
 import AnimatedPressable from "../src/components/AnimatedPressable";
+import { SectionHeader, Divider } from "../src/components/SectionHeader";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -187,20 +188,6 @@ export default function SettingsScreen() {
   );
 }
 
-function SectionHeader({ title, colors }: { title: string; colors: ThemeColors }) {
-  return (
-    <Text style={[styles.sectionHeader, { color: colors.muted }]}>
-      {title}
-    </Text>
-  );
-}
-
-function Divider({ colors }: { colors: ThemeColors }) {
-  return (
-    <View style={[styles.divider, { backgroundColor: colors.border }]} />
-  );
-}
-
 function StatusRow({
   label,
   value,
@@ -294,18 +281,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     borderWidth: 1,
     marginBottom: 40,
-  },
-  sectionHeader: {
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    letterSpacing: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    marginTop: 4,
-  },
-  divider: {
-    height: 1,
-    marginLeft: 14,
   },
   statusRow: {
     flexDirection: "row",

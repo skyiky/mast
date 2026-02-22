@@ -187,7 +187,7 @@ export default function PairScreen() {
                   </AnimatedPressable>
                 </View>
               ) : (
-                <View style={[styles.cameraContainer, { borderColor: colors.border }]}>
+                <View style={[styles.cameraContainer, { borderColor: colors.border, backgroundColor: colors.bg }]}>
                   <CameraView
                     style={styles.flex}
                     barcodeScannerSettings={{
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 1,
     overflow: "hidden",
-    backgroundColor: "#000",
+    backgroundColor: undefined,
     marginBottom: 16,
     borderWidth: 1,
   },

@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  RefreshControl,
   StyleSheet,
   Keyboard,
   Alert,
@@ -110,65 +111,76 @@ export default function ChatScreen() {
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  // Load messages from API on mount
+  // Load messages from API — used on mount and pull-to-refresh
   const initialLoadAborted = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
 
+  const loadMessages = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await api.messages(id);
+
+      if (initialLoadAborted.current) return;
+
+      if (res.status === 200 && Array.isArray(res.body)) {
+        const mapped: ChatMessage[] = res.body.map((m: any) => {
+          const info = m.info ?? m;
+          return {
+            id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            role: info.role ?? m.role ?? "assistant",
+            parts: (m.parts ?? [])
+              .filter((p: any) => {
+                const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
+                return kept.includes(p.type);
+              })
+              .map((p: any) => ({
+                type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
+                content: p.text ?? p.content ?? "",
+                toolName: p.toolName ?? p.name,
+                toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
+              })),
+            streaming: false,
+            createdAt: info.time?.created
+              ? new Date(info.time.created).toISOString()
+              : m.createdAt ?? new Date().toISOString(),
+          };
+        });
+
+        // Clear any orphaned streaming flags from a previous WebSocket
+        // session before replacing with API-loaded messages. This fixes
+        // stale loading spinners on old agent messages. If a real stream
+        // is in progress, the WebSocket handler will re-set streaming: true
+        // on the next event.
+        const currentMessages = useSessionStore.getState().messagesBySession[id];
+        if (currentMessages?.some((m) => m.streaming)) {
+          useSessionStore.getState().setMessages(
+            id,
+            currentMessages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+          );
+        }
+
+        setMessages(id, mapped);
+      }
+    } catch (err) {
+      if (!initialLoadAborted.current) {
+        console.error("[chat] Failed to load messages:", err);
+      }
+    }
+  }, [id, api, setMessages]);
+
+  // Load on mount
   useEffect(() => {
     if (!id) return;
     initialLoadAborted.current = false;
-
-    (async () => {
-      try {
-        const res = await api.messages(id);
-
-        if (initialLoadAborted.current) return;
-
-        if (res.status === 200 && Array.isArray(res.body)) {
-          const mapped: ChatMessage[] = res.body.map((m: any) => {
-            const info = m.info ?? m;
-            return {
-              id: info.id ?? m.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              role: info.role ?? m.role ?? "assistant",
-              parts: (m.parts ?? [])
-                .filter((p: any) => {
-                  const kept = ["text", "tool-invocation", "tool-result", "reasoning", "file"];
-                  return kept.includes(p.type);
-                })
-                .map((p: any) => ({
-                  type: p.type as "text" | "tool-invocation" | "tool-result" | "reasoning" | "file",
-                  content: p.text ?? p.content ?? "",
-                  toolName: p.toolName ?? p.name,
-                  toolArgs: p.toolArgs ?? (p.args ? JSON.stringify(p.args) : undefined),
-                })),
-              streaming: false,
-              createdAt: info.time?.created
-                ? new Date(info.time.created).toISOString()
-                : m.createdAt ?? new Date().toISOString(),
-            };
-          });
-
-          // Clear any orphaned streaming flags from a previous WebSocket
-          // session before replacing with API-loaded messages. This fixes
-          // stale loading spinners on old agent messages. If a real stream
-          // is in progress, the WebSocket handler will re-set streaming: true
-          // on the next event.
-          const currentMessages = useSessionStore.getState().messagesBySession[id];
-          if (currentMessages?.some((m) => m.streaming)) {
-            useSessionStore.getState().setMessages(
-              id,
-              currentMessages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-            );
-          }
-
-          setMessages(id, mapped);
-        }
-      } catch (err) {
-        if (!initialLoadAborted.current) {
-          console.error("[chat] Failed to load messages:", err);
-        }
-      }
-    })();
+    loadMessages();
   }, [id]);
+
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadMessages();
+    setRefreshing(false);
+  }, [loadMessages]);
 
   // Auto-scroll on new messages / streaming content via onContentSizeChange
   const handleContentSizeChange = useCallback(() => {
@@ -289,6 +301,21 @@ export default function ChatScreen() {
     [colors.border],
   );
 
+  // Empty state for new sessions
+  const renderEmpty = useCallback(
+    () => (
+      <View style={styles.emptyState}>
+        <Text style={[styles.emptyComment, { color: colors.dim }]}>
+          // new session
+        </Text>
+        <Text style={[styles.emptyHint, { color: colors.muted }]}>
+          type a prompt to begin
+        </Text>
+      </View>
+    ),
+    [colors],
+  );
+
   // Handle revert — pre-fill text input with reverted user prompt
   const handleRevert = useCallback((promptText: string) => {
     setInputText(promptText);
@@ -313,6 +340,14 @@ export default function ChatScreen() {
           estimatedItemSize={80}
           contentContainerStyle={{ paddingTop: 8, paddingBottom: 16 }}
           ItemSeparatorComponent={renderSeparator}
+          ListEmptyComponent={renderEmpty}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.muted}
+            />
+          }
           onContentSizeChange={handleContentSizeChange}
         />
 
@@ -400,7 +435,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   configBtn: {
-    marginRight: 8,
     height: 44,
     width: 44,
     alignItems: "center",
@@ -446,5 +480,20 @@ const styles = StyleSheet.create({
   sendIcon: {
     fontFamily: fonts.bold,
     fontSize: 16,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 120,
+  },
+  emptyComment: {
+    fontFamily: fonts.light,
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  emptyHint: {
+    fontFamily: fonts.light,
+    fontSize: 13,
   },
 });
