@@ -98,8 +98,8 @@ export default function RootLayout() {
   }, []);
 
   if (!fontsLoaded || !tokenLoaded) {
+    // Hardcoded colors: ThemeProvider not mounted yet. Must match themes.ts bg/success.
     return (
-      {/* Hardcoded colors: ThemeProvider not mounted yet. Must match themes.ts bg/success. */}
       <View style={{ flex: 1, backgroundColor: "#0A0A0A", alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color="#22C55E" />
       </View>
