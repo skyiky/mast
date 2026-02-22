@@ -22,13 +22,13 @@ export interface ChatMessage {
 
 export interface Session {
   id: string;
-  /** Human-readable session name from OpenCode (e.g., "happy-wizard") */
+  /** Human-readable session nickname from OpenCode (e.g., "happy-wizard") */
   title?: string;
   /** Working directory the agent is operating in */
   directory?: string;
   createdAt: string;
   updatedAt: string;
-  /** Preview of last message (for session list) */
+  /** Last user prompt text (truncated, for session list preview) */
   lastMessagePreview?: string;
   /** Whether the session has unread messages */
   hasActivity?: boolean;
@@ -57,6 +57,8 @@ interface SessionState {
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
+  /** Remove a session from the local list (e.g. user swipe-to-delete). */
+  removeSession: (sessionId: string) => void;
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   setActiveSessionId: (id: string | null) => void;
   setLoadingSessions: (loading: boolean) => void;
@@ -97,10 +99,31 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       return { sessions: [session, ...state.sessions] };
     }),
 
-  setMessages: (sessionId, messages) =>
+  removeSession: (sessionId) =>
     set((state) => ({
-      messagesBySession: { ...state.messagesBySession, [sessionId]: messages },
+      sessions: state.sessions.filter((s) => s.id !== sessionId),
+      // Also clean up messages for the deleted session
+      messagesBySession: (() => {
+        const { [sessionId]: _, ...rest } = state.messagesBySession;
+        return rest;
+      })(),
     })),
+
+  setMessages: (sessionId, messages) =>
+    set((state) => {
+      // Derive last user prompt preview from loaded messages
+      const lastUserMsg = findLastUserMessage(messages);
+      return {
+        messagesBySession: { ...state.messagesBySession, [sessionId]: messages },
+        sessions: lastUserMsg
+          ? state.sessions.map((s) =>
+              s.id === sessionId
+                ? { ...s, lastMessagePreview: lastUserMsg }
+                : s,
+            )
+          : state.sessions,
+      };
+    }),
 
   setActiveSessionId: (id) =>
     set((state) => ({
@@ -119,17 +142,28 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       const existing = state.messagesBySession[sessionId] ?? [];
       // Don't add duplicates
       if (existing.find((m) => m.id === message.id)) return state;
+
+      // Extract preview from user messages
+      const preview =
+        message.role === "user"
+          ? message.parts.find((p) => p.type === "text")?.content
+          : undefined;
+
       return {
         messagesBySession: {
           ...state.messagesBySession,
           [sessionId]: [...existing, message],
         },
         // Mark session as having unread activity (if not the active session)
-        sessions: state.sessions.map((s) =>
-          s.id === sessionId && s.id !== state.activeSessionId
-            ? { ...s, hasActivity: true }
-            : s,
-        ),
+        // and update preview if this is a user message
+        sessions: state.sessions.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            ...(s.id !== state.activeSessionId ? { hasActivity: true } : {}),
+            ...(preview ? { lastMessagePreview: preview } : {}),
+          };
+        }),
       };
     }),
 
@@ -304,3 +338,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       permissions: state.permissions.filter((p) => p.sessionId !== sessionId),
     })),
 }));
+
+/** Find the text content of the last user message in a list. */
+function findLastUserMessage(messages: ChatMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      return messages[i].parts.find((p) => p.type === "text")?.content;
+    }
+  }
+  return undefined;
+}

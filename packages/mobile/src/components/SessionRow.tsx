@@ -1,8 +1,9 @@
 /**
- * SessionRow — Terminal-style session list entry.
- * ● active / ○ idle. Monospace throughout.
+ * SessionRow — Enhanced session list card.
+ * Shows nickname, description/prompt preview, project folder, and timestamp.
+ * Long-press to delete.
  *
- * Wrapped in React.memo — rendered inside FlashList, must not re-render
+ * Wrapped in React.memo — rendered inside SectionList, must not re-render
  * unless props change.
  */
 
@@ -16,15 +17,19 @@ import AnimatedPressable from "./AnimatedPressable";
 interface SessionRowProps {
   session: Session;
   onPress: () => void;
+  onLongPress?: () => void;
 }
 
-function SessionRowInner({ session, onPress }: SessionRowProps) {
+function SessionRowInner({ session, onPress, onLongPress }: SessionRowProps) {
   const { colors } = useTheme();
   const timeAgo = getTimeAgo(session.updatedAt || session.createdAt);
+  const projectName = extractProjectName(session.directory);
 
   return (
     <AnimatedPressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={500}
       style={[
         styles.container,
         {
@@ -34,37 +39,51 @@ function SessionRowInner({ session, onPress }: SessionRowProps) {
       ]}
     >
       {/* Activity dot */}
-      <Text
-        style={[
-          styles.dot,
-          { color: session.hasActivity ? colors.success : colors.dim },
-        ]}
-      >
-        {session.hasActivity ? "●" : "○"}
-      </Text>
+      <View style={styles.dotColumn}>
+        <Text
+          style={[
+            styles.dot,
+            { color: session.hasActivity ? colors.success : colors.dim },
+          ]}
+        >
+          {session.hasActivity ? "\u25CF" : "\u25CB"}
+        </Text>
+      </View>
 
       {/* Content */}
       <View style={styles.content}>
-        <Text
-          style={[styles.title, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {session.title || `${session.id.slice(0, 8)}...`}
-        </Text>
-        {session.lastMessagePreview && (
+        {/* Top row: nickname + timestamp */}
+        <View style={styles.topRow}>
+          <Text
+            style={[styles.title, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {session.title || `${session.id.slice(0, 8)}...`}
+          </Text>
+          <Text style={[styles.time, { color: colors.dim }]}>
+            {timeAgo}
+          </Text>
+        </View>
+
+        {/* Last user prompt preview */}
+        {session.lastMessagePreview ? (
           <Text
             style={[styles.preview, { color: colors.muted }]}
-            numberOfLines={1}
+            numberOfLines={2}
           >
             {session.lastMessagePreview}
           </Text>
-        )}
-      </View>
+        ) : null}
 
-      {/* Timestamp */}
-      <Text style={[styles.time, { color: colors.dim }]}>
-        {timeAgo}
-      </Text>
+        {/* Bottom row: project folder */}
+        {projectName ? (
+          <View style={styles.metaRow}>
+            <Text style={[styles.metaLabel, { color: colors.dim }]}>
+              {projectName}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </AnimatedPressable>
   );
 }
@@ -72,30 +91,49 @@ function SessionRowInner({ session, onPress }: SessionRowProps) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dotColumn: {
+    width: 16,
+    paddingTop: 3,
   },
   dot: {
     fontFamily: fonts.regular,
     fontSize: 10,
-    width: 16,
   },
   content: {
     flex: 1,
-    marginRight: 8,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   title: {
     fontFamily: fonts.medium,
     fontSize: 14,
+    flex: 1,
+    marginRight: 8,
+  },
+  time: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
   },
   preview: {
     fontFamily: fonts.regular,
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 3,
+    lineHeight: 17,
   },
-  time: {
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+  },
+  metaLabel: {
     fontFamily: fonts.regular,
     fontSize: 11,
   },
@@ -118,4 +156,11 @@ function getTimeAgo(isoDate: string): string {
   if (diffHr < 24) return `${diffHr}h`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d`;
+}
+
+/** Extract the last path segment as the project name. */
+function extractProjectName(directory?: string): string | null {
+  if (!directory) return null;
+  const segments = directory.split(/[/\\]/).filter(Boolean);
+  return segments[segments.length - 1] || null;
 }

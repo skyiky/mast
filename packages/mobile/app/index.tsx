@@ -2,7 +2,7 @@
  * Session list — home screen. Terminal style.
  */
 
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  SectionList,
 } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useNavigation, Redirect, useFocusEffect } from "expo-router";
 import { useShallow } from "zustand/react/shallow";
 import { useConnectionStore } from "../src/stores/connection";
@@ -32,6 +33,7 @@ export default function SessionListScreen() {
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const sessions = useSessionStore(useShallow((s) => s.sessions));
   const setSessions = useSessionStore((s) => s.setSessions);
+  const removeSession = useSessionStore((s) => s.removeSession);
   const loadingSessions = useSessionStore((s) => s.loadingSessions);
   const setLoadingSessions = useSessionStore((s) => s.setLoadingSessions);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,7 +41,7 @@ export default function SessionListScreen() {
 
   const api = useApi();
 
-  // Settings header button — terminal style
+  // Settings header button — gear icon
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -48,11 +50,7 @@ export default function SessionListScreen() {
           hitSlop={8}
           style={styles.configBtn}
         >
-          <Text
-            style={[styles.configText, { color: colors.accent }]}
-          >
-            [config]
-          </Text>
+          <Ionicons name="settings-outline" size={20} color={colors.muted} />
         </Pressable>
       ),
     });
@@ -136,15 +134,71 @@ export default function SessionListScreen() {
     [router],
   );
 
-  // Stable renderItem for FlashList
+  const handleDeleteSession = useCallback(
+    (session: Session) => {
+      Alert.alert(
+        "Delete Session",
+        `Remove "${session.title || session.id.slice(0, 8)}" from this list?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => removeSession(session.id),
+          },
+        ],
+      );
+    },
+    [removeSession],
+  );
+
+  // Group sessions by day for section headers
+  const sections = useMemo(() => {
+    if (sessions.length === 0) return [];
+
+    const groups = new Map<string, Session[]>();
+    const now = new Date();
+    const today = toDateKey(now);
+    const yesterday = toDateKey(new Date(now.getTime() - 86400000));
+
+    for (const session of sessions) {
+      const key = toDateKey(new Date(session.updatedAt || session.createdAt));
+      let label: string;
+      if (key === today) label = "Today";
+      else if (key === yesterday) label = "Yesterday";
+      else label = key;
+
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(session);
+    }
+
+    return Array.from(groups.entries()).map(([title, data]) => ({
+      title,
+      data,
+    }));
+  }, [sessions]);
+
+  // Stable renderItem for SectionList
   const renderSession = useCallback(
     ({ item }: { item: Session }) => (
       <SessionRow
         session={item}
         onPress={() => handleOpenSession(item)}
+        onLongPress={() => handleDeleteSession(item)}
       />
     ),
-    [handleOpenSession],
+    [handleOpenSession, handleDeleteSession],
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: { title: string } }) => (
+      <View style={[styles.sectionHeader, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.sectionTitle, { color: colors.dim }]}>
+          {section.title}
+        </Text>
+      </View>
+    ),
+    [colors],
   );
 
   const keyExtractor = useCallback((item: Session) => item.id, []);
@@ -185,11 +239,12 @@ export default function SessionListScreen() {
           </AnimatedPressable>
         </View>
       ) : (
-        <FlashList
-          data={sessions}
+        <SectionList
+          sections={sections}
           keyExtractor={keyExtractor}
           renderItem={renderSession}
-          estimatedItemSize={60}
+          renderSectionHeader={renderSectionHeader}
+          stickySectionHeadersEnabled={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -238,9 +293,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  configText: {
+  sectionHeader: {
+    paddingHorizontal: 14,
+    paddingTop: 20,
+    paddingBottom: 6,
+  },
+  sectionTitle: {
     fontFamily: fonts.medium,
-    fontSize: 13,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   centered: {
     flex: 1,
@@ -296,3 +358,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
 });
+
+/** Format a date as a human-readable day label (e.g., "Feb 21, 2026"). */
+function toDateKey(d: Date): string {
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
