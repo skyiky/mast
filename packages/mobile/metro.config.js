@@ -20,17 +20,4 @@ config.resolver.extraNodeModules = {
   "react-native": path.resolve(monorepoRoot, "node_modules/react-native"),
 };
 
-// Expo Go ships native worklets 0.5.1, but reanimated 4.x depends on
-// worklets 0.7.x. Force Metro to resolve the Expo Go-compatible local
-// copy (installed via `npx expo install react-native-worklets`).
-const localWorklets = path.resolve(projectRoot, "node_modules/react-native-worklets");
-const defaultResolve = config.resolver.resolveRequest;
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "react-native-worklets" || moduleName.startsWith("react-native-worklets/")) {
-    const redirected = moduleName.replace("react-native-worklets", localWorklets);
-    return (defaultResolve || context.resolveRequest)(context, redirected, platform);
-  }
-  return (defaultResolve || context.resolveRequest)(context, moduleName, platform);
-};
-
 module.exports = config;
