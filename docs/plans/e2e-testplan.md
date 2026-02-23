@@ -407,6 +407,229 @@ curl https://your-orchestrator.azurecontainerapps.io/health
 make logs
 ```
 
+## Stage 6: Session Config, Settings, UI Features & Push
+
+**Goal:** Test all the features built in UI Polish Rounds 1-2 and the Session Config Sheet,
+Settings screen, session management, and push notifications on a real device.
+
+**Prerequisites:**
+- Stages 0-5 pass (app runs, pairing works, core E2E works, resilience + Supabase verified)
+- At least one session with messages already exists (from Stage 3)
+- Daemon running with OpenCode (not `MAST_SKIP_OPENCODE`)
+
+---
+
+### Test 6.1: Session Config Sheet — Open & Info
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Open a session with messages | Chat screen renders with messages |
+| 2 | Tap the `⋮` button in the header | Bottom sheet slides up from bottom |
+| 3 | Observe `// session` section | Shows: status (idle/working), project path (shortened), created time (e.g. "2h ago"), message count |
+| 4 | Swipe sheet up | Sheet expands to 90% snap point |
+| 5 | Swipe sheet down past close threshold | Sheet dismisses, backdrop disappears |
+
+**Pass criteria:** Sheet opens/closes smoothly, session info is accurate, backdrop is
+semi-transparent and tappable to close.
+
+### Test 6.2: Session Config — Verbosity & Mode Toggles
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Open config sheet | Sheet opens |
+| 2 | In `// controls`, tap "full" under verbosity | Toggle highlights "full", haptic feedback |
+| 3 | Tap "std" | Toggle switches back to "std", haptic feedback |
+| 4 | Tap "plan" under mode | Toggle highlights "plan", haptic feedback |
+| 5 | Close sheet, send a prompt | If plan mode works: prompt should be prefixed with "PLAN MODE:" (verify in daemon logs) |
+| 6 | Re-open sheet, tap "build" | Mode switches back to "build" |
+
+**Pass criteria:** Toggles work, persist across sheet open/close, and plan mode affects prompts.
+
+### Test 6.3: Session Config — Model Selector
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Open config sheet | Sheet opens |
+| 2 | Tap the "model" row | Dropdown expands with provider groups |
+| 3 | Observe provider grouping | Models grouped by provider (e.g. `// github-copilot`), count shown |
+| 4 | Observe default markers | Default model for each provider marked with ` *` |
+| 5 | Tap a different model | Model selects (highlight + haptic), dropdown closes |
+| 6 | Verify selected model shown | Model row now shows the new model name |
+
+**Pass criteria:** Model list loads from `/providers` API, grouped correctly, selection works.
+Note: changing the model in the UI does NOT currently change what OpenCode uses — this is
+a display-only feature for Phase 1.
+
+### Test 6.4: Session Config — View Diff
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | In a session where the agent has modified files, open config sheet | Sheet opens |
+| 2 | Tap "view diff" in `// inspect` section | DiffSheet modal opens full-screen |
+| 3 | Observe diff content | File paths, additions/deletions counts, patch content visible |
+| 4 | Scroll through diff | Long diffs scroll smoothly |
+| 5 | Close diff (tap close / swipe) | Returns to config sheet |
+
+**Pass criteria:** Diff loads from `/sessions/:id/diff` API, renders correctly.
+If no files were changed, diff should show an empty state or "no changes" message.
+
+### Test 6.5: Session Config — Abort Execution
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Send a complex prompt that takes a while (e.g. "Refactor all files to use camelCase") | Agent starts working, status shows "working" |
+| 2 | Quickly open config sheet | Sheet opens |
+| 3 | Observe `[abort execution]` button | Button is red (enabled, since agent is streaming) |
+| 4 | Tap `[abort execution]` | Haptic warning, spinner shows, agent stops |
+| 5 | Verify status returns to idle | Status dot changes to green "idle" |
+
+**Pass criteria:** Abort stops the agent mid-execution. When agent is idle, the abort button
+should be dimmed/disabled.
+
+### Test 6.6: Session Config — Revert Last Response
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | In a session with at least one exchange, open config sheet | Sheet opens |
+| 2 | Tap `[revert last response]` | Confirmation alert appears: "revert last response" |
+| 3 | Tap "revert" in the alert | Loading spinner, then sheet closes |
+| 4 | Observe chat | Both the last assistant message AND the user prompt that triggered it are removed |
+| 5 | Observe text input | Pre-filled with the reverted user prompt text |
+| 6 | (Optional) Re-send the pre-filled prompt | Agent processes it again as a new message |
+
+**Pass criteria:** Revert removes both messages, pre-fills input, and the API call to
+`/sessions/:id/revert` succeeds. When no messages exist, the button should be dimmed.
+
+### Test 6.7: Settings Screen
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | From session list, tap the gear icon in the header | Settings screen opens with fade transition |
+| 2 | Observe `// connection` section | Shows server URL, connection statuses (WebSocket, daemon, OpenCode) with green/red dots |
+| 3 | Long-press server URL | URL popup appears with copy option |
+| 4 | Tap "copy" | URL copied to clipboard, checkmark confirmation |
+| 5 | Observe `// preferences` section | Verbosity toggle (std/full) visible |
+| 6 | Toggle verbosity | Toggle switches, haptic feedback, persists after leaving and returning |
+| 7 | Tap `[re-pair device]` | Confirmation alert: "this will disconnect..." |
+| 8 | Tap "cancel" | Alert dismisses, stays on settings |
+| 9 | (Do NOT actually re-pair unless you want to redo Stage 2) | |
+
+**Pass criteria:** Settings screen shows accurate connection info, verbosity toggle works
+and persists (AsyncStorage), re-pair flow has confirmation gate.
+
+### Test 6.8: Session List — Day Grouping & Enhanced Cards
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Ensure multiple sessions exist (create 2-3 if needed) | Session list has multiple entries |
+| 2 | Observe day headers | Sessions grouped under headers like "today", "yesterday", or date strings |
+| 3 | Observe session cards | Each card shows: session title/slug, last user message preview, timestamp |
+| 4 | Verify preview text | Preview shows the actual last USER message (truncated), NOT an AI-generated description |
+
+**Pass criteria:** Day grouping renders correctly, session cards show real user message
+previews, timestamps are accurate.
+
+### Test 6.9: Session List — Long-Press Delete
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Long-press on a session card | Confirmation alert: delete session? |
+| 2 | Tap "cancel" | Alert dismisses, session remains |
+| 3 | Long-press again, tap "delete" | Session removed from list with animation |
+| 4 | Pull-to-refresh | Deleted session does not reappear |
+
+**Pass criteria:** Long-press triggers delete flow, confirmation gate works, deletion
+persists across refresh.
+
+### Test 6.10: Chat — Empty State
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Create a new session | Navigates to chat screen |
+| 2 | Observe empty chat area | Empty state component renders (not just blank white/black) |
+| 3 | Send a message | Empty state disappears, message appears |
+
+**Pass criteria:** New sessions show a helpful empty state, not a blank screen.
+
+### Test 6.11: Chat — Pull-to-Refresh
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Open a session with messages | Chat screen with messages |
+| 2 | Pull down on the message list | Refresh indicator appears |
+| 3 | Wait for refresh | Messages reload from API, indicator disappears |
+| 4 | Verify no duplicate messages | Same messages as before, no duplicates |
+
+**Pass criteria:** Pull-to-refresh reloads messages without duplicates or visual glitches.
+
+### Test 6.12: Screen Transitions (Fade)
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | From session list, tap a session | Fade transition to chat screen (not slide) |
+| 2 | Tap back | Fade transition back to session list |
+| 3 | Tap gear icon | Fade transition to settings |
+| 4 | Tap back | Fade transition back |
+
+**Pass criteria:** All screen transitions use fade animation (~200ms), not the default
+slide-from-right.
+
+### Test 6.13: Tool Call Card — Expand/Collapse
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Find a message with tool invocations (e.g. file reads) | Tool cards visible |
+| 2 | Observe collapsed tool card | Shows tool name and truncated result (max ~500 chars) |
+| 3 | Tap `[show more]` | Result expands to full content |
+| 4 | Tap `[show less]` | Result collapses back |
+
+**Pass criteria:** Long tool results are truncated by default with expand/collapse toggle.
+Short results show in full without toggle.
+
+### Test 6.14: Push Notifications (Background)
+
+**Note:** This test requires a development build or EAS build — push tokens may not work
+in Expo Go. If push registration fails silently, skip this test.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Verify push token registered | Check daemon/orchestrator logs for push token registration |
+| 2 | Background the Mast app (swipe home) | App goes to background |
+| 3 | From another terminal, send a prompt to the session via curl or daemon | Agent starts working |
+| 4 | Wait for agent to request a permission | Push notification appears on phone |
+| 5 | Tap the notification | App opens to the relevant session |
+
+**Pass criteria:** Push notification received when app is backgrounded. Tapping notification
+navigates to the correct session. If push tokens don't work in Expo Go, this test is
+deferred to EAS build.
+
+### Test 6.15: Connection Banner States
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | With everything connected, observe top of screen | No connection banner visible |
+| 2 | Kill the daemon | Banner appears: "agent offline" or similar warning |
+| 3 | Restart daemon | Banner disappears within ~5 seconds |
+| 4 | (Optional) Toggle airplane mode briefly | Banner shows WebSocket disconnection, then recovers |
+
+**Pass criteria:** Connection banner accurately reflects system state, appears/disappears
+reactively.
+
+### Test 6.16: Dark/Light Theme
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Set iPhone to dark mode (Settings → Display) | App uses OLED dark theme (pure black bg) |
+| 2 | Check all screens: session list, chat, settings, config sheet | All screens use dark colors, no white-on-white |
+| 3 | Set iPhone to light mode | App switches to light theme |
+| 4 | Check all screens again | Light backgrounds, dark text, no black-on-black |
+| 5 | Check accent color | Blue accent (#5c7cfa) visible on buttons and highlights in both modes |
+
+**Pass criteria:** Theme follows system setting, all screens render correctly in both modes,
+no hardcoded colors causing contrast issues.
+
+---
+
 ## Pass / Fail Summary
 
 | Stage | Tests | Pass | Fail | Notes |
@@ -417,4 +640,5 @@ make logs
 | 3. Core E2E | 8 | | | Full relay chain with OpenCode |
 | 4. Resilience | 4 | | | Disconnect/reconnect scenarios |
 | 5. Supabase | 2 | | | Data persistence verification |
-| **Total** | **26** | | | |
+| 6. Config, Settings, UI & Push | 16 | | | Session config, settings, UI polish, push |
+| **Total** | **42** | | | |
