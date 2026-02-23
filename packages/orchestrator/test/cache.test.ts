@@ -15,6 +15,7 @@ import {
   sleep,
   type Phase3TestStack,
 } from "./helpers.js";
+import { DEV_USER_ID } from "../src/auth.js";
 
 describe("Session cache", () => {
   let stack: Phase3TestStack;
@@ -49,7 +50,7 @@ describe("Session cache", () => {
     assert.equal(messages[0].role, "assistant");
     assert.equal(messages[0].sessionId, "sess1");
 
-    const session = await stack.store.getSession("sess1");
+    const session = await stack.store.getSession(DEV_USER_ID, "sess1");
     assert.ok(session, "Session should exist in the store");
     assert.equal(session.id, "sess1");
   });

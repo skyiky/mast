@@ -23,6 +23,7 @@ import {
   type Phase4TestStack,
 } from "./helpers.js";
 import { HARDCODED_DEVICE_KEY } from "@mast/shared";
+import { DEV_USER_ID } from "../src/auth.js";
 
 describe("Reconnection & cache sync", () => {
   let stack: Phase4TestStack;
@@ -63,7 +64,7 @@ describe("Reconnection & cache sync", () => {
     await sleep(200);
 
     // Verify the session is cached
-    const sessions = await stack.store.listSessions();
+    const sessions = await stack.store.listSessions(DEV_USER_ID);
     assert.ok(sessions.some((s) => s.id === "sync-sess-1"));
 
     // Register a handler for the message query (daemon will need this for sync)
@@ -410,7 +411,7 @@ describe("Reconnection & cache sync", () => {
     await sleep(300);
 
     // Should not crash — session still in store (not removed by sync)
-    const sessions = await stack.store.listSessions();
+    const sessions = await stack.store.listSessions(DEV_USER_ID);
     assert.ok(sessions.some((s) => s.id === "deleted-sess"));
 
     await relay2.disconnect();

@@ -1,14 +1,15 @@
 /**
  * SupabaseSessionStore — Production implementation of SessionStore.
  *
- * Thin adapter over @supabase/supabase-js that maps the SessionStore
- * interface to real Supabase Postgres tables.
+ * Uses the Supabase service role key (bypasses RLS) and manually scopes
+ * all queries by user_id extracted from the validated JWT.
  *
- * Schema (created manually in Supabase dashboard or via SQL):
+ * Schema (after 002_multi_user.sql migration):
  *
- *   sessions:    id (text PK), title, status, created_at, updated_at
+ *   sessions:    id (text PK), user_id (uuid), title, status, created_at, updated_at
  *   messages:    id (text PK), session_id (FK), role, parts (jsonb), streaming, created_at
- *   push_tokens: id (uuid PK), token (text unique), created_at
+ *   push_tokens: token (text PK), user_id (uuid), created_at
+ *   device_keys: key (text PK), user_id (uuid), name, paired_at, last_seen
  *
  * Writes on the streaming path are fire-and-forget — the caller does NOT
  * await the DB write before forwarding events to the phone.
@@ -24,15 +25,15 @@ export class SupabaseSessionStore implements SessionStore {
     this.client = createClient(supabaseUrl, supabaseKey);
   }
 
-  async upsertSession(session: {
-    id: string;
-    title?: string;
-    status?: string;
-  }): Promise<void> {
+  async upsertSession(
+    userId: string,
+    session: { id: string; title?: string; status?: string },
+  ): Promise<void> {
     const now = new Date().toISOString();
     const { error } = await this.client.from("sessions").upsert(
       {
         id: session.id,
+        user_id: userId,
         title: session.title ?? null,
         status: session.status ?? "active",
         updated_at: now,
@@ -44,10 +45,11 @@ export class SupabaseSessionStore implements SessionStore {
     }
   }
 
-  async listSessions(): Promise<StoredSession[]> {
+  async listSessions(userId: string): Promise<StoredSession[]> {
     const { data, error } = await this.client
       .from("sessions")
       .select("*")
+      .eq("user_id", userId)
       .order("updated_at", { ascending: false });
 
     if (error) {
@@ -58,11 +60,12 @@ export class SupabaseSessionStore implements SessionStore {
     return (data ?? []).map(mapSession);
   }
 
-  async getSession(id: string): Promise<StoredSession | null> {
+  async getSession(userId: string, id: string): Promise<StoredSession | null> {
     const { data, error } = await this.client
       .from("sessions")
       .select("*")
       .eq("id", id)
+      .eq("user_id", userId)
       .single();
 
     if (error) {
@@ -74,14 +77,12 @@ export class SupabaseSessionStore implements SessionStore {
     return data ? mapSession(data) : null;
   }
 
-  async addMessage(msg: {
-    id: string;
-    sessionId: string;
-    role: string;
-    parts: unknown[];
-  }): Promise<void> {
-    // Ensure session exists
-    await this.upsertSession({ id: msg.sessionId });
+  async addMessage(
+    userId: string,
+    msg: { id: string; sessionId: string; role: string; parts: unknown[] },
+  ): Promise<void> {
+    // Ensure session exists (owned by this user)
+    await this.upsertSession(userId, { id: msg.sessionId });
 
     const { error } = await this.client.from("messages").upsert(
       {
@@ -192,9 +193,9 @@ export class SupabaseSessionStore implements SessionStore {
     return (data ?? []).map(mapMessage);
   }
 
-  async savePushToken(token: string): Promise<void> {
+  async savePushToken(userId: string, token: string): Promise<void> {
     const { error } = await this.client.from("push_tokens").upsert(
-      { token },
+      { token, user_id: userId },
       { onConflict: "token" },
     );
     if (error) {
@@ -202,10 +203,11 @@ export class SupabaseSessionStore implements SessionStore {
     }
   }
 
-  async getPushTokens(): Promise<string[]> {
+  async getPushTokens(userId: string): Promise<string[]> {
     const { data, error } = await this.client
       .from("push_tokens")
-      .select("token");
+      .select("token")
+      .eq("user_id", userId);
 
     if (error) {
       console.error("[supabase] getPushTokens error:", error.message);
@@ -213,6 +215,49 @@ export class SupabaseSessionStore implements SessionStore {
     }
 
     return (data ?? []).map((row) => row.token as string);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Device key helpers (not part of SessionStore interface)
+  // ---------------------------------------------------------------------------
+
+  /** Look up the userId for a device key. Returns null if not found. */
+  async resolveDeviceKey(key: string): Promise<string | null> {
+    const { data, error } = await this.client
+      .from("device_keys")
+      .select("user_id")
+      .eq("key", key)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") return null;
+      console.error("[supabase] resolveDeviceKey error:", error.message);
+      return null;
+    }
+
+    return data?.user_id ?? null;
+  }
+
+  /** Save a new device key binding. */
+  async saveDeviceKey(key: string, userId: string, name?: string): Promise<void> {
+    const { error } = await this.client.from("device_keys").upsert(
+      { key, user_id: userId, name: name ?? null },
+      { onConflict: "key" },
+    );
+    if (error) {
+      console.error("[supabase] saveDeviceKey error:", error.message);
+    }
+  }
+
+  /** Update last_seen timestamp for a device key. */
+  async touchDeviceKey(key: string): Promise<void> {
+    const { error } = await this.client
+      .from("device_keys")
+      .update({ last_seen: new Date().toISOString() })
+      .eq("key", key);
+    if (error) {
+      console.error("[supabase] touchDeviceKey error:", error.message);
+    }
   }
 }
 

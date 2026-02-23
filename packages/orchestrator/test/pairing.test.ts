@@ -190,7 +190,7 @@ describe("Pairing flow", () => {
 
     const body = result.body as { success: boolean; error: string };
     assert.equal(body.success, false);
-    assert.equal(body.error, "invalid_code");
+    assert.equal(body.error, "no_pending_pairing");
 
     ws.close();
     await sleep(50);
@@ -212,8 +212,9 @@ describe("Pairing flow", () => {
     await sleep(50);
 
     // Manually manipulate the creation time to simulate expiry
-    // Access the private pending field for testing
-    const pending = (pairingManager as any).pending;
+    // Access the private pendingByCode map for testing
+    const pendingByCode = (pairingManager as any).pendingByCode as Map<string, any>;
+    const pending = pendingByCode.get("444444");
     assert.ok(pending);
     pending.createdAt = Date.now() - 6 * 60 * 1000; // 6 minutes ago
 
@@ -228,55 +229,48 @@ describe("Pairing flow", () => {
     await sleep(50);
   });
 
-  it("7. new pair_request invalidates previous pending code", async () => {
+  it("7. same daemon re-pairing replaces its previous pending code", async () => {
     const { baseUrl, wsUrl } = await setup();
 
-    // First daemon
-    const ws1 = new WebSocket(`${wsUrl}/daemon?token=pairing`);
+    // Single daemon sends two codes — second should replace first
+    const ws = new WebSocket(`${wsUrl}/daemon?token=pairing`);
     await new Promise<void>((resolve, reject) => {
-      ws1.on("open", () => resolve());
-      ws1.on("error", reject);
+      ws.on("open", () => resolve());
+      ws.on("error", reject);
     });
 
-    const ws1Messages: any[] = [];
-    ws1.on("message", (data) => {
-      ws1Messages.push(JSON.parse(data.toString()));
+    const wsMessages: any[] = [];
+    ws.on("message", (data) => {
+      wsMessages.push(JSON.parse(data.toString()));
     });
 
-    ws1.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: "pair_request",
       pairingCode: "555555",
     }));
     await sleep(50);
 
-    // Second daemon with new code
-    const ws2 = new WebSocket(`${wsUrl}/daemon?token=pairing`);
-    await new Promise<void>((resolve, reject) => {
-      ws2.on("open", () => resolve());
-      ws2.on("error", reject);
-    });
-
-    ws2.send(JSON.stringify({
+    // Same daemon sends a new code
+    ws.send(JSON.stringify({
       type: "pair_request",
       pairingCode: "666666",
     }));
     await sleep(50);
 
-    // First code should be invalidated
+    // New code should be active, old code should be rejected
     assert.equal(pairingManager.getPendingCode(), "666666");
 
-    // The first daemon should have received a rejection
-    const rejection = ws1Messages.find(
+    // The daemon should have received a rejection for the old code
+    const rejection = wsMessages.find(
       (m: any) => m.type === "pair_response" && m.success === false
     );
-    assert.ok(rejection, "first daemon should receive pair_response with success=false");
+    assert.ok(rejection, "daemon should receive pair_response with success=false for replaced code");
 
-    // Trying first code fails
+    // Trying old code fails
     const result = await apiRequest(baseUrl, "POST", "/pair/verify", { code: "555555" });
     assert.equal(result.status, 400);
 
-    ws1.close();
-    ws2.close();
+    ws.close();
     await sleep(50);
   });
 

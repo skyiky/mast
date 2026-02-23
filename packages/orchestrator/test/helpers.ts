@@ -43,14 +43,14 @@ export interface Phase4TestStack extends Phase3TestStack {
 
 /**
  * Start the full stack: fake OpenCode, orchestrator, daemon relay.
- * All on ephemeral ports.
+ * All on ephemeral ports. Uses dev mode so hardcoded tokens work.
  */
 export async function startStack(): Promise<TestStack> {
   // 1. Start fake OpenCode
   const fakeOpenCode = await createFakeOpenCode();
 
-  // 2. Start orchestrator on port 0 (ephemeral)
-  const orchestrator = await startServer(0);
+  // 2. Start orchestrator on port 0 (ephemeral) with dev mode
+  const orchestrator = await startServer(0, { devMode: true });
 
   // 3. Start daemon relay connecting to orchestrator, pointing at fake OpenCode
   const relay = new Relay(
@@ -99,17 +99,17 @@ export async function startPhase3Stack(opts?: {
   });
 
   // 3. Start orchestrator — pushConfig.isPhoneConnected is wired after we have the handle
-  let phoneConnectedFn = () => false;
+  let phoneConnectedFn = (_userId: string) => false;
   const pushConfig: PushConfig = {
     pushApiUrl: fakeExpoPush.url,
-    isPhoneConnected: () => phoneConnectedFn(),
+    isPhoneConnected: (userId: string) => phoneConnectedFn(userId),
   };
   const pushNotifier = new PushNotifier(store, pushConfig, deduplicator);
 
-  const orchestrator = await startServer(0, { store, pushNotifier });
+  const orchestrator = await startServer(0, { store, pushNotifier, devMode: true });
 
   // Wire the phone connected check to the actual orchestrator
-  phoneConnectedFn = () => orchestrator.phoneConnections.count() > 0;
+  phoneConnectedFn = (userId: string) => orchestrator.phoneConnections.hasConnectedPhones(userId);
 
   // 4. Start daemon relay
   const relay = new Relay(
@@ -263,17 +263,17 @@ export async function startPhase4Stack(opts?: {
   });
 
   // 3. Start orchestrator
-  let phoneConnectedFn = () => false;
+  let phoneConnectedFn = (_userId: string) => false;
   const pushConfig: PushConfig = {
     pushApiUrl: fakeExpoPush.url,
-    isPhoneConnected: () => phoneConnectedFn(),
+    isPhoneConnected: (userId: string) => phoneConnectedFn(userId),
   };
   const pushNotifier = new PushNotifier(store, pushConfig, deduplicator);
 
-  const orchestrator = await startServer(0, { store, pushNotifier, pairingManager });
+  const orchestrator = await startServer(0, { store, pushNotifier, pairingManager, devMode: true });
 
   // Wire the phone connected check to the actual orchestrator
-  phoneConnectedFn = () => orchestrator.phoneConnections.count() > 0;
+  phoneConnectedFn = (userId: string) => orchestrator.phoneConnections.hasConnectedPhones(userId);
 
   // 4. Start daemon relay (unless skipped)
   const relay = new Relay(

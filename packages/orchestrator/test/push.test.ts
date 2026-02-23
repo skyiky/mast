@@ -7,6 +7,7 @@ import {
   sleep,
 } from "../test/helpers.js";
 import type { Phase3TestStack } from "../test/helpers.js";
+import { DEV_USER_ID } from "../src/auth.js";
 
 describe("Push notifications", () => {
   let stack: Phase3TestStack;
@@ -32,7 +33,7 @@ describe("Push notifications", () => {
 
     assert.strictEqual(res.status, 200);
 
-    const tokens = await stack.store.getPushTokens();
+    const tokens = await stack.store.getPushTokens(DEV_USER_ID);
     assert.ok(
       tokens.includes("ExponentPushToken[abc123]"),
       "Store should contain the registered push token",
@@ -44,7 +45,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     stack.fakeOpenCode.pushEvent({
       type: "permission.created",
@@ -76,7 +77,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     const phone = await connectPhone(stack.orchestrator.port);
 
@@ -106,7 +107,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     stack.fakeOpenCode.pushEvent({
       type: "permission.created",
@@ -136,7 +137,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     // Push all events as fast as possible — they should all arrive
     // within the 200ms working interval window
@@ -166,7 +167,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     await stack.relay.disconnect();
 
@@ -188,7 +189,7 @@ describe("Push notifications", () => {
     stack.deduplicator.reset();
     stack.store.clearPushTokens();
 
-    await stack.store.savePushToken("ExponentPushToken[test]");
+    await stack.store.savePushToken(DEV_USER_ID, "ExponentPushToken[test]");
 
     await stack.relay.disconnect();
 

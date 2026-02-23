@@ -10,18 +10,30 @@ import type { SessionStore } from "./session-store.js";
 import type { PushNotifier } from "./push-notifications.js";
 import { PairingManager } from "./pairing.js";
 import { EventTimestampTracker, buildSyncRequest, processSyncResponse } from "./sync.js";
+import { verifyJwt, DEV_USER_ID } from "./auth.js";
+import type { SupabaseSessionStore } from "./supabase-store.js";
 
 export interface ServerConfig {
   store?: SessionStore;
   pushNotifier?: PushNotifier;
   pairingManager?: PairingManager;
+  /** Supabase JWT secret for verifying phone/API tokens */
+  jwtSecret?: string;
+  /**
+   * Dev mode: accept hardcoded Phase 1 tokens alongside JWTs.
+   * Automatically enabled when jwtSecret is not provided.
+   */
+  devMode?: boolean;
+  /** Supabase store for device key resolution (production only) */
+  supabaseStore?: SupabaseSessionStore;
 }
 
 export interface ServerHandle {
   server: ReturnType<typeof createServer>;
   wss: WebSocketServer;
   phoneWss: WebSocketServer;
-  daemonConnection: DaemonConnection;
+  /** Per-user daemon connections: userId → DaemonConnection */
+  daemonConnections: Map<string, DaemonConnection>;
   phoneConnections: PhoneConnectionManager;
   port: number;
   close: () => Promise<void>;
@@ -32,74 +44,109 @@ export function startServer(
   config?: ServerConfig,
 ): Promise<ServerHandle> {
   return new Promise((resolve) => {
-    const daemonConnection = new DaemonConnection();
+    const daemonConnections = new Map<string, DaemonConnection>();
     const phoneConnections = new PhoneConnectionManager();
     const store = config?.store;
     const pushNotifier = config?.pushNotifier;
     const pairingManager = config?.pairingManager ?? new PairingManager();
-    const timestampTracker = new EventTimestampTracker();
+    const jwtSecret = config?.jwtSecret;
+    const devMode = config?.devMode ?? !jwtSecret;
+    const supabaseStore = config?.supabaseStore;
 
-    // Track daemon-reported OpenCode status for broadcasting to phones
-    let lastOpencodeReady = false;
+    /** Per-user event timestamp trackers */
+    const timestampTrackers = new Map<string, EventTimestampTracker>();
+    /** Per-user last opencodeReady state */
+    const lastOpencodeReady = new Map<string, boolean>();
 
-    /** Build a status snapshot for phones */
-    const buildPhoneStatus = (): PhoneStatusMessage => ({
-      type: "status",
-      daemonConnected: daemonConnection.isConnected(),
-      opencodeReady: lastOpencodeReady,
-    });
-
-    const app = createApp({ daemonConnection, phoneConnections, store, pairingManager });
-
-    // Wire daemon events to phone clients + cache + push
-    daemonConnection.onEvent = (event: EventMessage) => {
-      // Track event timestamp for sync protocol
-      timestampTracker.update(event.timestamp);
-
-      // 1. Forward to phone clients (sync, immediate)
-      phoneConnections.broadcast(event);
-
-      // 2. Cache in session store (async, fire-and-forget)
-      if (store) {
-        cacheEvent(store, event).catch((err) => {
-          console.error("[orchestrator] cache error:", err);
-        });
+    function getTimestampTracker(userId: string): EventTimestampTracker {
+      let tracker = timestampTrackers.get(userId);
+      if (!tracker) {
+        tracker = new EventTimestampTracker();
+        timestampTrackers.set(userId, tracker);
       }
+      return tracker;
+    }
 
-      // 3. Push notification decision (async, fire-and-forget)
-      if (pushNotifier) {
-        pushNotifier
-          .handleEvent({
-            type: event.event.type,
-            properties: event.event.data as Record<string, unknown> | undefined,
-          })
-          .catch((err) => {
-            console.error("[orchestrator] push error:", err);
+    /** Build a status snapshot for phones of a specific user */
+    function buildPhoneStatus(userId: string): PhoneStatusMessage {
+      const daemon = daemonConnections.get(userId);
+      return {
+        type: "status",
+        daemonConnected: daemon?.isConnected() ?? false,
+        opencodeReady: lastOpencodeReady.get(userId) ?? false,
+      };
+    }
+
+    /**
+     * Get or create a DaemonConnection for a user, wiring up all callbacks
+     * for event routing, sync, status, and push notifications.
+     */
+    function getOrCreateDaemon(userId: string): DaemonConnection {
+      let daemon = daemonConnections.get(userId);
+      if (daemon) return daemon;
+
+      daemon = new DaemonConnection();
+      daemonConnections.set(userId, daemon);
+
+      // Wire daemon events to this user's phone clients + cache + push
+      daemon.onEvent = (event: EventMessage) => {
+        const tracker = getTimestampTracker(userId);
+        tracker.update(event.timestamp);
+
+        // 1. Forward to this user's phone clients (sync, immediate)
+        phoneConnections.broadcast(userId, event);
+
+        // 2. Cache in session store (async, fire-and-forget)
+        if (store) {
+          cacheEvent(store, userId, event).catch((err) => {
+            console.error("[orchestrator] cache error:", err);
           });
-      }
-    };
+        }
 
-    // Wire sync_response handling
-    daemonConnection.onSyncResponse = (response) => {
-      if (store) {
-        processSyncResponse(response, store, phoneConnections).catch((err) => {
-          console.error("[orchestrator] sync response processing error:", err);
-        });
-      }
-    };
+        // 3. Push notification decision (async, fire-and-forget)
+        if (pushNotifier) {
+          pushNotifier
+            .handleEvent(userId, {
+              type: event.event.type,
+              properties: event.event.data as Record<string, unknown> | undefined,
+            })
+            .catch((err) => {
+              console.error("[orchestrator] push error:", err);
+            });
+        }
+      };
 
-    // Wire daemon status updates to phone clients
-    daemonConnection.onStatus = (status) => {
-      lastOpencodeReady = status.opencodeReady;
-      phoneConnections.broadcastStatus(buildPhoneStatus());
-    };
+      // Wire sync_response handling
+      daemon.onSyncResponse = (response) => {
+        if (store) {
+          processSyncResponse(response, store, userId, phoneConnections).catch((err) => {
+            console.error("[orchestrator] sync response processing error:", err);
+          });
+        }
+      };
 
-    // Wire pair_request handling
-    daemonConnection.onPairRequest = (request: PairRequest) => {
-      // Pair request is handled via the pairing WSS path, not here.
-      // This callback exists for extensibility but pairing is managed
-      // directly in the WSS upgrade handler below.
-    };
+      // Wire daemon status updates to this user's phone clients
+      daemon.onStatus = (status) => {
+        lastOpencodeReady.set(userId, status.opencodeReady);
+        phoneConnections.broadcastStatus(userId, buildPhoneStatus(userId));
+      };
+
+      // Wire pair_request handling (extensibility hook)
+      daemon.onPairRequest = (_request: PairRequest) => {
+        // Pairing is managed in the WSS upgrade handler, not here.
+      };
+
+      return daemon;
+    }
+
+    const app = createApp({
+      daemonConnections,
+      phoneConnections,
+      store,
+      pairingManager,
+      jwtSecret,
+      devMode,
+    });
 
     const requestListener = getRequestListener(app.fetch);
     const server = createServer(requestListener);
@@ -117,14 +164,24 @@ export function startServer(
       if (parsed.pathname === "/daemon") {
         const token = parsed.query.token as string | undefined;
 
-        // Accept: hardcoded key, dynamically issued key, or "pairing" for unpaired daemons
+        // Resolve token to userId (or handle pairing)
         const isPairing = token === "pairing";
-        const isAuthorized =
-          token === HARDCODED_DEVICE_KEY ||
-          (token !== undefined && pairingManager.isValidKey(token)) ||
-          isPairing;
+        let userId: string | undefined;
 
-        if (!isAuthorized) {
+        if (isPairing) {
+          // Pairing mode — handled separately below
+        } else if (devMode && token === HARDCODED_DEVICE_KEY) {
+          userId = DEV_USER_ID;
+        } else if (token && pairingManager.isValidKey(token)) {
+          userId = pairingManager.getUserIdForKey(token);
+        } else if (token && supabaseStore) {
+          // For persistent device keys, we'd do an async lookup here.
+          // This is handled after upgrade below with a sync check.
+          // For now, reject unknown tokens synchronously.
+          // TODO: async device key resolution from Supabase
+        }
+
+        if (!isPairing && !userId) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
@@ -155,21 +212,28 @@ export function startServer(
           }
 
           // Normal authenticated daemon connection
-          daemonConnection.setConnection(ws);
+          const daemon = getOrCreateDaemon(userId!);
+          daemon.setConnection(ws);
 
-          // Notify phones that daemon is now connected
-          phoneConnections.broadcastStatus(buildPhoneStatus());
+          // Update device key last_seen
+          if (supabaseStore && token && token !== HARDCODED_DEVICE_KEY) {
+            supabaseStore.touchDeviceKey(token).catch(() => {});
+          }
 
-          // Cancel pending daemon-offline push notification
+          // Notify this user's phones that daemon is now connected
+          phoneConnections.broadcastStatus(userId!, buildPhoneStatus(userId!));
+
+          // Cancel pending daemon-offline push notification for this user
           if (pushNotifier) {
-            pushNotifier.handleDaemonReconnect();
+            pushNotifier.handleDaemonReconnect(userId!);
           }
 
           // Send sync_request if we have cached data
           if (store) {
-            buildSyncRequest(store, timestampTracker.get())
+            const tracker = getTimestampTracker(userId!);
+            buildSyncRequest(store, userId!, tracker.get())
               .then((syncReq) => {
-                daemonConnection.sendRaw(syncReq);
+                daemon.sendRaw(syncReq);
               })
               .catch((err) => {
                 console.error("[orchestrator] failed to build sync request:", err);
@@ -178,59 +242,78 @@ export function startServer(
 
           ws.on("message", (data) => {
             try {
-              daemonConnection.handleMessage(data.toString());
+              daemon.handleMessage(data.toString());
             } catch (err) {
               console.error("[orchestrator] error handling daemon message:", err);
             }
           });
 
           ws.on("close", () => {
-            daemonConnection.clearConnection();
-            lastOpencodeReady = false;
-            // Notify phones that daemon disconnected
-            phoneConnections.broadcastStatus(buildPhoneStatus());
-            // Schedule deferred daemon-offline push
+            daemon.clearConnection();
+            lastOpencodeReady.set(userId!, false);
+            // Notify this user's phones that daemon disconnected
+            phoneConnections.broadcastStatus(userId!, buildPhoneStatus(userId!));
+            // Schedule deferred daemon-offline push for this user
             if (pushNotifier) {
-              pushNotifier.handleDaemonDisconnect();
+              pushNotifier.handleDaemonDisconnect(userId!);
             }
           });
 
           ws.on("error", (err) => {
             console.error("[orchestrator] daemon ws error:", err);
-            daemonConnection.clearConnection();
-            lastOpencodeReady = false;
-            // Notify phones that daemon disconnected
-            phoneConnections.broadcastStatus(buildPhoneStatus());
+            daemon.clearConnection();
+            lastOpencodeReady.set(userId!, false);
+            phoneConnections.broadcastStatus(userId!, buildPhoneStatus(userId!));
             if (pushNotifier) {
-              pushNotifier.handleDaemonDisconnect();
+              pushNotifier.handleDaemonDisconnect(userId!);
             }
           });
         });
         return;
       }
 
-      // --- Phone upgrade: /ws?token=<api_token> ---
+      // --- Phone upgrade: /ws?token=<jwt_or_api_token> ---
       if (parsed.pathname === "/ws") {
-        const token = parsed.query.token;
-        if (token !== HARDCODED_API_TOKEN) {
+        const token = parsed.query.token as string | undefined;
+        if (!token) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
+        // Resolve token to userId
+        let userId: string | undefined;
+
+        if (devMode && token === HARDCODED_API_TOKEN) {
+          userId = DEV_USER_ID;
+        } else if (jwtSecret) {
+          try {
+            const payload = verifyJwt(token, jwtSecret);
+            userId = payload.sub;
+          } catch (err) {
+            console.error("[orchestrator] phone JWT verification failed:", err);
+          }
+        }
+
+        if (!userId) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
         }
 
         phoneWss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
-          phoneConnections.add(ws);
+          phoneConnections.add(userId!, ws);
 
           // Send current daemon status immediately on connect
-          phoneConnections.sendStatus(ws, buildPhoneStatus());
+          phoneConnections.sendStatus(ws, buildPhoneStatus(userId!));
 
           ws.on("close", () => {
-            phoneConnections.remove(ws);
+            phoneConnections.remove(userId!, ws);
           });
 
           ws.on("error", (err) => {
             console.error("[orchestrator] phone ws error:", err);
-            phoneConnections.remove(ws);
+            phoneConnections.remove(userId!, ws);
           });
         });
         return;
@@ -250,12 +333,19 @@ export function startServer(
         server,
         wss,
         phoneWss,
-        daemonConnection,
+        daemonConnections,
         phoneConnections,
         port: actualPort,
         close: () =>
           new Promise<void>((res) => {
             phoneConnections.closeAll();
+            // Terminate all daemon WSS clients (including pairing sockets)
+            for (const client of wss.clients) {
+              client.terminate();
+            }
+            for (const client of phoneWss.clients) {
+              client.terminate();
+            }
             phoneWss.close(() => {
               wss.close(() => {
                 server.closeAllConnections();
@@ -274,6 +364,7 @@ export function startServer(
 
 async function cacheEvent(
   store: SessionStore,
+  userId: string,
   event: EventMessage,
 ): Promise<void> {
   const data = event.event.data as Record<string, unknown> | undefined;
@@ -297,8 +388,8 @@ async function cacheEvent(
         await store.markMessageComplete(info.id);
       } else {
         // New message
-        await store.upsertSession({ id: sid });
-        await store.addMessage({
+        await store.upsertSession(userId, { id: sid });
+        await store.addMessage(userId, {
           id: info.id,
           sessionId: sid,
           role: info.role,
@@ -314,8 +405,8 @@ async function cacheEvent(
         | { id: string; role: string }
         | undefined;
       if (msg && sessionId) {
-        await store.upsertSession({ id: sessionId });
-        await store.addMessage({
+        await store.upsertSession(userId, { id: sessionId });
+        await store.addMessage(userId, {
           id: msg.id,
           sessionId,
           role: msg.role,
@@ -351,7 +442,7 @@ async function cacheEvent(
       const id = (session.id ?? sessionId) as string | undefined;
       if (id) {
         const title = (session.slug ?? session.title) as string | undefined;
-        await store.upsertSession({ id, title });
+        await store.upsertSession(userId, { id, title });
       }
       break;
     }

@@ -2,6 +2,8 @@
 // After a daemon reconnects, the orchestrator sends a sync_request with the IDs of
 // cached sessions and the timestamp of the last event it received. The daemon queries
 // OpenCode and responds with any missed messages.
+//
+// All store operations now require a userId for multi-user scoping.
 
 import type { SyncRequest, SyncResponse, EventMessage } from "@mast/shared";
 import type { SessionStore } from "./session-store.js";
@@ -12,9 +14,10 @@ import type { PhoneConnectionManager } from "./phone-connections.js";
  */
 export async function buildSyncRequest(
   store: SessionStore,
+  userId: string,
   lastEventTimestamp: string,
 ): Promise<SyncRequest> {
-  const sessions = await store.listSessions();
+  const sessions = await store.listSessions(userId);
   return {
     type: "sync_request",
     cachedSessionIds: sessions.map((s) => s.id),
@@ -24,24 +27,25 @@ export async function buildSyncRequest(
 
 /**
  * Process a sync_response from the daemon: backfill missed messages into the store
- * and broadcast them to any connected phone clients.
+ * and broadcast them to the user's connected phone clients.
  */
 export async function processSyncResponse(
   response: SyncResponse,
   store: SessionStore,
+  userId: string,
   phoneConnections: PhoneConnectionManager,
 ): Promise<void> {
   for (const session of response.sessions) {
     // Upsert session in case it's new — include title if available
     const sess = session as Record<string, unknown>;
-    await store.upsertSession({
+    await store.upsertSession(userId, {
       id: session.id,
       title: (sess.slug ?? sess.title) as string | undefined,
     });
 
     for (const msg of session.messages) {
       // Add the missed message
-      await store.addMessage({
+      await store.addMessage(userId, {
         id: msg.id,
         sessionId: session.id,
         role: msg.role,
@@ -53,7 +57,7 @@ export async function processSyncResponse(
         await store.markMessageComplete(msg.id);
       }
 
-      // Broadcast to phone clients as a synthetic event
+      // Broadcast to this user's phone clients as a synthetic event
       const event: EventMessage = {
         type: "event",
         event: {
@@ -68,7 +72,7 @@ export async function processSyncResponse(
         },
         timestamp: new Date().toISOString(),
       };
-      phoneConnections.broadcast(event);
+      phoneConnections.broadcast(userId, event);
     }
   }
 }

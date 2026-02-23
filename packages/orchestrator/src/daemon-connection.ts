@@ -178,5 +178,3 @@ export class DaemonConnection {
     }
   }
 }
-
-export const daemonConnection = new DaemonConnection();

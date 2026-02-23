@@ -13,6 +13,7 @@ import { InMemorySessionStore } from "../src/session-store.js";
 import { decidePush, PushDeduplicator } from "../src/push-notifications.js";
 import { PairingManager } from "../src/pairing.js";
 import { EventTimestampTracker, buildSyncRequest, processSyncResponse } from "../src/sync.js";
+import { DEV_USER_ID } from "../src/auth.js";
 import { HealthMonitor } from "../../daemon/src/health-monitor.js";
 import { PhoneConnectionManager } from "../src/phone-connections.js";
 
@@ -104,15 +105,15 @@ describe("InMemorySessionStore", () => {
   it("add message, get messages, list sessions — CRUD correctness", async () => {
     const store = new InMemorySessionStore();
 
-    await store.upsertSession({ id: "sess1", title: "Test session" });
-    await store.addMessage({
+    await store.upsertSession(DEV_USER_ID, { id: "sess1", title: "Test session" });
+    await store.addMessage(DEV_USER_ID, {
       id: "msg1",
       sessionId: "sess1",
       role: "user",
       parts: [{ type: "text", text: "hello" }],
     });
 
-    const sessions = await store.listSessions();
+    const sessions = await store.listSessions(DEV_USER_ID);
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].id, "sess1");
     assert.equal(sessions[0].title, "Test session");
@@ -127,9 +128,9 @@ describe("InMemorySessionStore", () => {
   it("messages from different sessions don't leak", async () => {
     const store = new InMemorySessionStore();
 
-    await store.addMessage({ id: "m1", sessionId: "s1", role: "user", parts: [] });
-    await store.addMessage({ id: "m2", sessionId: "s2", role: "user", parts: [] });
-    await store.addMessage({ id: "m3", sessionId: "s1", role: "assistant", parts: [] });
+    await store.addMessage(DEV_USER_ID, { id: "m1", sessionId: "s1", role: "user", parts: [] });
+    await store.addMessage(DEV_USER_ID, { id: "m2", sessionId: "s2", role: "user", parts: [] });
+    await store.addMessage(DEV_USER_ID, { id: "m3", sessionId: "s1", role: "assistant", parts: [] });
 
     const s1 = await store.getMessages("s1");
     const s2 = await store.getMessages("s2");
@@ -143,7 +144,7 @@ describe("InMemorySessionStore", () => {
   it("updateMessageParts + markMessageComplete — streaming lifecycle", async () => {
     const store = new InMemorySessionStore();
 
-    await store.addMessage({
+    await store.addMessage(DEV_USER_ID, {
       id: "msg-stream",
       sessionId: "sess1",
       role: "assistant",
@@ -205,30 +206,30 @@ describe("PushDeduplicator", () => {
     const dedup = new PushDeduplicator({ workingIntervalMs: 5000 });
 
     // Permission: always allowed
-    assert.equal(dedup.shouldSend("permission"), true);
-    assert.equal(dedup.shouldSend("permission"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "permission"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "permission"), true);
 
     // Completed: always allowed
-    assert.equal(dedup.shouldSend("completed"), true);
-    assert.equal(dedup.shouldSend("completed"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "completed"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "completed"), true);
 
     // Working: first one allowed, second blocked within interval
-    assert.equal(dedup.shouldSend("working"), true);
-    assert.equal(dedup.shouldSend("working"), false, "Second working should be suppressed");
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "working"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "working"), false, "Second working should be suppressed");
   });
 
   it("tracks different event categories independently", () => {
     const dedup = new PushDeduplicator({ workingIntervalMs: 5000 });
 
     // Working is debounced
-    assert.equal(dedup.shouldSend("working"), true);
-    assert.equal(dedup.shouldSend("working"), false);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "working"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "working"), false);
 
     // But permission is NOT affected by working's dedup
-    assert.equal(dedup.shouldSend("permission"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "permission"), true);
 
     // And completed is NOT affected either
-    assert.equal(dedup.shouldSend("completed"), true);
+    assert.equal(dedup.shouldSend(DEV_USER_ID, "completed"), true);
   });
 });
 
@@ -302,11 +303,11 @@ describe("PairingManager expiry", () => {
 describe("buildSyncRequest", () => {
   it("produces correct structure from cached sessions", async () => {
     const store = new InMemorySessionStore();
-    await store.upsertSession({ id: "sess-a", title: "Session A" });
-    await store.upsertSession({ id: "sess-b", title: "Session B" });
+    await store.upsertSession(DEV_USER_ID, { id: "sess-a", title: "Session A" });
+    await store.upsertSession(DEV_USER_ID, { id: "sess-b", title: "Session B" });
 
     const timestamp = "2026-02-19T12:00:00.000Z";
-    const request = await buildSyncRequest(store, timestamp);
+    const request = await buildSyncRequest(store, DEV_USER_ID, timestamp);
 
     assert.equal(request.type, "sync_request");
     assert.equal(request.lastEventTimestamp, timestamp);
@@ -318,7 +319,7 @@ describe("buildSyncRequest", () => {
 
   it("produces empty cachedSessionIds for empty store", async () => {
     const store = new InMemorySessionStore();
-    const request = await buildSyncRequest(store, "2026-01-01T00:00:00.000Z");
+    const request = await buildSyncRequest(store, DEV_USER_ID, "2026-01-01T00:00:00.000Z");
 
     assert.equal(request.type, "sync_request");
     assert.deepEqual(request.cachedSessionIds, []);
@@ -332,7 +333,7 @@ describe("processSyncResponse", () => {
     const store = new InMemorySessionStore();
     const broadcasts: unknown[] = [];
     const fakePhoneConnections = {
-      broadcast: (msg: unknown) => { broadcasts.push(msg); },
+      broadcast: (_userId: string, msg: unknown) => { broadcasts.push(msg); },
       addClient: () => {},
       removeClient: () => {},
       getClientCount: () => 0,
@@ -351,7 +352,7 @@ describe("processSyncResponse", () => {
       ],
     };
 
-    await processSyncResponse(syncResponse, store, fakePhoneConnections);
+    await processSyncResponse(syncResponse, store, DEV_USER_ID, fakePhoneConnections);
 
     // Verify messages were stored
     const messages = await store.getMessages("sess-1");
@@ -375,7 +376,7 @@ describe("processSyncResponse", () => {
     const store = new InMemorySessionStore();
     const broadcasts: unknown[] = [];
     const fakePhoneConnections = {
-      broadcast: (msg: unknown) => { broadcasts.push(msg); },
+      broadcast: (_userId: string, msg: unknown) => { broadcasts.push(msg); },
     } as unknown as PhoneConnectionManager;
 
     const syncResponse = {
@@ -383,9 +384,9 @@ describe("processSyncResponse", () => {
       sessions: [],
     };
 
-    await processSyncResponse(syncResponse, store, fakePhoneConnections);
+    await processSyncResponse(syncResponse, store, DEV_USER_ID, fakePhoneConnections);
 
-    const sessions = await store.listSessions();
+    const sessions = await store.listSessions(DEV_USER_ID);
     assert.equal(sessions.length, 0, "No sessions should be created");
     assert.equal(broadcasts.length, 0, "No broadcasts should happen");
   });

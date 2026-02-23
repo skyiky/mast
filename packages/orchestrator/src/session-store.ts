@@ -1,9 +1,14 @@
 /**
- * SessionStore — Interface and InMemorySessionStore for Phase 3.
+ * SessionStore — Interface and InMemorySessionStore.
  *
  * The SessionStore abstracts session/message persistence.
  * - InMemorySessionStore: used in tests (fast, deterministic)
  * - SupabaseSessionStore: used in production (supabase-store.ts)
+ *
+ * All session-level and push-token methods require a userId parameter
+ * for multi-user scoping. Message methods that operate by unique id
+ * (markMessageComplete, upsertMessagePart, updateMessageParts) do not
+ * require userId since message ids are globally unique.
  */
 
 // ---------------------------------------------------------------------------
@@ -32,22 +37,19 @@ export interface StoredMessage {
 // ---------------------------------------------------------------------------
 
 export interface SessionStore {
-  upsertSession(session: {
-    id: string;
-    title?: string;
-    status?: string;
-  }): Promise<void>;
+  upsertSession(
+    userId: string,
+    session: { id: string; title?: string; status?: string },
+  ): Promise<void>;
 
-  listSessions(): Promise<StoredSession[]>;
+  listSessions(userId: string): Promise<StoredSession[]>;
 
-  getSession(id: string): Promise<StoredSession | null>;
+  getSession(userId: string, id: string): Promise<StoredSession | null>;
 
-  addMessage(msg: {
-    id: string;
-    sessionId: string;
-    role: string;
-    parts: unknown[];
-  }): Promise<void>;
+  addMessage(
+    userId: string,
+    msg: { id: string; sessionId: string; role: string; parts: unknown[] },
+  ): Promise<void>;
 
   updateMessageParts(id: string, parts: unknown[]): Promise<void>;
 
@@ -63,9 +65,9 @@ export interface SessionStore {
 
   getMessages(sessionId: string): Promise<StoredMessage[]>;
 
-  savePushToken(token: string): Promise<void>;
+  savePushToken(userId: string, token: string): Promise<void>;
 
-  getPushTokens(): Promise<string[]>;
+  getPushTokens(userId: string): Promise<string[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,15 +75,14 @@ export interface SessionStore {
 // ---------------------------------------------------------------------------
 
 export class InMemorySessionStore implements SessionStore {
-  private sessions = new Map<string, StoredSession>();
+  private sessions = new Map<string, StoredSession & { userId: string }>();
   private messages = new Map<string, StoredMessage>();
-  private pushTokens = new Set<string>();
+  private pushTokens = new Map<string, Set<string>>(); // userId → Set<token>
 
-  async upsertSession(session: {
-    id: string;
-    title?: string;
-    status?: string;
-  }): Promise<void> {
+  async upsertSession(
+    userId: string,
+    session: { id: string; title?: string; status?: string },
+  ): Promise<void> {
     const existing = this.sessions.get(session.id);
     const now = new Date().toISOString();
     if (existing) {
@@ -98,30 +99,33 @@ export class InMemorySessionStore implements SessionStore {
         status: session.status ?? "active",
         createdAt: now,
         updatedAt: now,
+        userId,
       });
     }
   }
 
-  async listSessions(): Promise<StoredSession[]> {
-    return Array.from(this.sessions.values()).sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+  async listSessions(userId: string): Promise<StoredSession[]> {
+    return Array.from(this.sessions.values())
+      .filter((s) => s.userId === userId)
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
   }
 
-  async getSession(id: string): Promise<StoredSession | null> {
-    return this.sessions.get(id) ?? null;
+  async getSession(userId: string, id: string): Promise<StoredSession | null> {
+    const session = this.sessions.get(id);
+    if (!session || session.userId !== userId) return null;
+    return session;
   }
 
-  async addMessage(msg: {
-    id: string;
-    sessionId: string;
-    role: string;
-    parts: unknown[];
-  }): Promise<void> {
+  async addMessage(
+    userId: string,
+    msg: { id: string; sessionId: string; role: string; parts: unknown[] },
+  ): Promise<void> {
     // Ensure session exists
     if (!this.sessions.has(msg.sessionId)) {
-      await this.upsertSession({ id: msg.sessionId });
+      await this.upsertSession(userId, { id: msg.sessionId });
     }
     this.messages.set(msg.id, {
       id: msg.id,
@@ -179,12 +183,17 @@ export class InMemorySessionStore implements SessionStore {
       );
   }
 
-  async savePushToken(token: string): Promise<void> {
-    this.pushTokens.add(token);
+  async savePushToken(userId: string, token: string): Promise<void> {
+    let tokens = this.pushTokens.get(userId);
+    if (!tokens) {
+      tokens = new Set();
+      this.pushTokens.set(userId, tokens);
+    }
+    tokens.add(token);
   }
 
-  async getPushTokens(): Promise<string[]> {
-    return Array.from(this.pushTokens);
+  async getPushTokens(userId: string): Promise<string[]> {
+    return Array.from(this.pushTokens.get(userId) ?? []);
   }
 
   /** Clear all push tokens (useful for test isolation). */

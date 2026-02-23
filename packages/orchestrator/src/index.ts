@@ -2,8 +2,11 @@
  * Mast Orchestrator — Entry point.
  *
  * Detects environment to decide configuration:
- * - SUPABASE_URL + SUPABASE_ANON_KEY → use SupabaseSessionStore (production)
+ * - SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY → use SupabaseSessionStore (production)
+ * - SUPABASE_URL + SUPABASE_ANON_KEY → fallback (no service role key)
  * - Otherwise → InMemorySessionStore (local dev / testing)
+ * - SUPABASE_JWT_SECRET → enables JWT verification for phone/API auth
+ * - MAST_DEV_MODE=1 → accept hardcoded Phase 1 tokens (auto-enabled without JWT secret)
  * - EXPO_PUSH_URL → override push API endpoint (for testing)
  *
  * Wires up: session store, push notifier, pairing manager, server.
@@ -19,14 +22,35 @@ import type { SessionStore } from "./session-store.js";
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
 async function main() {
+  // --- Auth config ---
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+  const devMode = process.env.MAST_DEV_MODE === "1" || !jwtSecret;
+
+  if (jwtSecret) {
+    console.log("[orchestrator] JWT verification enabled");
+  }
+  if (devMode) {
+    console.log("[orchestrator] Dev mode enabled — hardcoded tokens accepted");
+  }
+
   // --- Session store ---
   let store: SessionStore;
+  let supabaseStore: SupabaseSessionStore | undefined;
+
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_ANON_KEY;
+  // Prefer service role key (bypasses RLS), fall back to anon key
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
 
   if (supabaseUrl && supabaseKey) {
     console.log("[orchestrator] Using SupabaseSessionStore");
-    store = new SupabaseSessionStore(supabaseUrl, supabaseKey);
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.log("[orchestrator] Using service role key (bypasses RLS)");
+    } else {
+      console.log("[orchestrator] Using anon key (RLS applies)");
+    }
+    const sbStore = new SupabaseSessionStore(supabaseUrl, supabaseKey);
+    store = sbStore;
+    supabaseStore = sbStore;
   } else {
     console.log("[orchestrator] Using InMemorySessionStore (no SUPABASE_URL set)");
     store = new InMemorySessionStore();
@@ -37,14 +61,14 @@ async function main() {
 
   // --- Push notifier ---
   const pushApiUrl = process.env.EXPO_PUSH_URL ?? "https://exp.host/--/api/v2/push/send";
-  let phoneConnectedFn: (() => boolean) | undefined;
+  let phoneConnectedFn: ((userId: string) => boolean) | undefined;
 
   // We'll set this after the server starts (need phoneConnections reference)
   const pushNotifier = new PushNotifier(
     store,
     {
       pushApiUrl,
-      isPhoneConnected: () => phoneConnectedFn?.() ?? false,
+      isPhoneConnected: (userId: string) => phoneConnectedFn?.(userId) ?? false,
     },
     new PushDeduplicator(),
   );
@@ -54,10 +78,13 @@ async function main() {
     store,
     pushNotifier,
     pairingManager,
+    jwtSecret,
+    devMode,
+    supabaseStore,
   });
 
   // Now wire the phone-connected check to the actual phone connections
-  phoneConnectedFn = () => handle.phoneConnections.count() > 0;
+  phoneConnectedFn = (userId: string) => handle.phoneConnections.hasConnectedPhones(userId);
 
   console.log(`[orchestrator] Listening on port ${handle.port}`);
   if (supabaseUrl) {

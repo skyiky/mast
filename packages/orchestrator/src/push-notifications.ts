@@ -1,8 +1,11 @@
 /**
- * Push notification module — Phase 3.
+ * Push notification module — Phase 3 + multi-user.
  *
  * Decides when to send push notifications and handles deduplication.
  * The actual HTTP send goes to Expo's push API (or a fake in tests).
+ *
+ * All methods that interact with the store or check phone connectivity
+ * now require a userId parameter for multi-user scoping.
  *
  * Design:
  * - permission.created → push immediately (if no phone connected)
@@ -28,8 +31,8 @@ export interface PushPayload {
 export interface PushConfig {
   /** Expo push API URL (override for testing) */
   pushApiUrl: string;
-  /** Function that returns whether a phone is currently connected */
-  isPhoneConnected: () => boolean;
+  /** Function that returns whether a phone is currently connected for a user */
+  isPhoneConnected: (userId: string) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +101,11 @@ export function decidePush(
 
 /**
  * Tracks last push time per category to prevent spam.
+ * Keys include userId for multi-user isolation.
  * - "permission" → no dedup (always send immediately)
- * - "working" → max once per 5 minutes
+ * - "working" → max once per 5 minutes per user
  * - "completed" → no dedup
- * - "daemon_offline" → 30s grace period
+ * - "daemon_offline" → 30s grace period per user
  */
 export class PushDeduplicator {
   private lastSent = new Map<string, number>();
@@ -124,20 +128,21 @@ export class PushDeduplicator {
    * Check if a push for this category should be sent now.
    * Returns true if it should be sent, false if it should be suppressed.
    */
-  shouldSend(category: string): boolean {
+  shouldSend(userId: string, category: string): boolean {
     // Permission and completed: always send
     if (category === "permission" || category === "completed") {
       return true;
     }
 
-    // Working: debounce to once per interval
+    // Working: debounce to once per interval, per user
     if (category === "working") {
-      const last = this.lastSent.get("working");
+      const key = `${userId}:working`;
+      const last = this.lastSent.get(key);
       const now = Date.now();
       if (last && now - last < this.workingIntervalMs) {
         return false;
       }
-      this.lastSent.set("working", now);
+      this.lastSent.set(key, now);
       return true;
     }
 
@@ -145,32 +150,32 @@ export class PushDeduplicator {
   }
 
   /**
-   * Schedule a deferred push (for daemon disconnect).
-   * Returns a promise that resolves with true if the push should fire,
-   * or false if it was cancelled (daemon reconnected).
+   * Schedule a deferred push (for daemon disconnect), per user.
    */
-  scheduleDaemonOffline(callback: () => void): void {
-    // Cancel any existing timer
-    this.cancelDaemonOffline();
+  scheduleDaemonOffline(userId: string, callback: () => void): void {
+    const key = `${userId}:daemon_offline`;
+    // Cancel any existing timer for this user
+    this.cancelDaemonOffline(userId);
     const timer = setTimeout(() => {
-      this.pendingTimers.delete("daemon_offline");
+      this.pendingTimers.delete(key);
       callback();
     }, this.disconnectGraceMs);
-    this.pendingTimers.set("daemon_offline", timer);
+    this.pendingTimers.set(key, timer);
   }
 
-  /** Cancel a pending daemon offline push (daemon reconnected in time). */
-  cancelDaemonOffline(): void {
-    const timer = this.pendingTimers.get("daemon_offline");
+  /** Cancel a pending daemon offline push for a user (daemon reconnected in time). */
+  cancelDaemonOffline(userId: string): void {
+    const key = `${userId}:daemon_offline`;
+    const timer = this.pendingTimers.get(key);
     if (timer) {
       clearTimeout(timer);
-      this.pendingTimers.delete("daemon_offline");
+      this.pendingTimers.delete(key);
     }
   }
 
-  /** Whether a daemon offline push is pending. */
-  hasPendingDaemonOffline(): boolean {
-    return this.pendingTimers.has("daemon_offline");
+  /** Whether a daemon offline push is pending for a user. */
+  hasPendingDaemonOffline(userId: string): boolean {
+    return this.pendingTimers.has(`${userId}:daemon_offline`);
   }
 
   /** Reset all state (for tests). */
@@ -206,12 +211,15 @@ export class PushNotifier {
    * Handle an incoming event — decide whether to push and send if needed.
    * Only sends when the phone is NOT connected (push is a fallback channel).
    */
-  async handleEvent(event: {
-    type: string;
-    properties?: Record<string, unknown>;
-  }): Promise<void> {
+  async handleEvent(
+    userId: string,
+    event: {
+      type: string;
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<void> {
     // If phone is connected, no push needed
-    if (this.config.isPhoneConnected()) {
+    if (this.config.isPhoneConnected(userId)) {
       return;
     }
 
@@ -220,15 +228,16 @@ export class PushNotifier {
 
     // Map event type to dedup category
     const category = this.eventCategory(event.type);
-    if (!this.dedup.shouldSend(category)) return;
+    if (!this.dedup.shouldSend(userId, category)) return;
 
-    await this.sendPush(decision.title, decision.body, decision.data);
+    await this.sendPush(userId, decision.title, decision.body, decision.data);
   }
 
-  /** Handle daemon disconnect — schedule a deferred push. */
-  handleDaemonDisconnect(): void {
-    this.dedup.scheduleDaemonOffline(async () => {
+  /** Handle daemon disconnect — schedule a deferred push for the user. */
+  handleDaemonDisconnect(userId: string): void {
+    this.dedup.scheduleDaemonOffline(userId, async () => {
       await this.sendPush(
+        userId,
         "Dev machine offline",
         "Your dev machine went offline.",
         { type: "daemon_offline" },
@@ -236,9 +245,9 @@ export class PushNotifier {
     });
   }
 
-  /** Handle daemon reconnect — cancel pending offline push. */
-  handleDaemonReconnect(): void {
-    this.dedup.cancelDaemonOffline();
+  /** Handle daemon reconnect — cancel pending offline push for the user. */
+  handleDaemonReconnect(userId: string): void {
+    this.dedup.cancelDaemonOffline(userId);
   }
 
   /** Expose dedup for testing. */
@@ -254,11 +263,12 @@ export class PushNotifier {
   }
 
   private async sendPush(
+    userId: string,
     title: string,
     body: string,
     data?: Record<string, unknown>,
   ): Promise<void> {
-    const tokens = await this.store.getPushTokens();
+    const tokens = await this.store.getPushTokens(userId);
     if (tokens.length === 0) return;
 
     const payloads: PushPayload[] = tokens.map((token) => ({
