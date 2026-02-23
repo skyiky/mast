@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface MessagePart {
   type: "text" | "tool-invocation" | "tool-result" | "reasoning" | "file";
@@ -53,6 +55,10 @@ interface SessionState {
   loadingSessions: boolean;
   /** Currently active session ID (for tracking which chat is open) */
   activeSessionId: string | null;
+  /** Session IDs the user has deleted locally. Persisted via AsyncStorage so
+   *  they stay hidden across app restarts even though the server still
+   *  returns them in GET /sessions. */
+  deletedSessionIds: string[];
 
   // Actions
   setSessions: (sessions: Session[]) => void;
@@ -85,12 +91,15 @@ interface SessionState {
   clearPermissions: (sessionId: string) => void;
 }
 
-export const useSessionStore = create<SessionState>()((set, get) => ({
+export const useSessionStore = create<SessionState>()(
+  persist(
+    (set, get) => ({
   sessions: [],
   messagesBySession: {},
   permissions: [],
   loadingSessions: false,
   activeSessionId: null,
+  deletedSessionIds: [],
 
   setSessions: (sessions) => set({ sessions }),
   addSession: (session) =>
@@ -102,6 +111,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   removeSession: (sessionId) =>
     set((state) => ({
       sessions: state.sessions.filter((s) => s.id !== sessionId),
+      deletedSessionIds: state.deletedSessionIds.includes(sessionId)
+        ? state.deletedSessionIds
+        : [...state.deletedSessionIds, sessionId],
       // Also clean up messages for the deleted session
       messagesBySession: (() => {
         const { [sessionId]: _, ...rest } = state.messagesBySession;
@@ -337,7 +349,15 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     set((state) => ({
       permissions: state.permissions.filter((p) => p.sessionId !== sessionId),
     })),
-}));
+    }),
+    {
+      name: "mast-deleted-sessions",
+      storage: createJSONStorage(() => AsyncStorage),
+      // Only persist the deleted session IDs — everything else is transient
+      partialize: (state) => ({ deletedSessionIds: state.deletedSessionIds }),
+    },
+  ),
+);
 
 /** Find the text content of the last user message in a list. */
 function findLastUserMessage(messages: ChatMessage[]): string | undefined {

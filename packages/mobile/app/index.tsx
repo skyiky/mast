@@ -66,11 +66,15 @@ export default function SessionListScreen() {
       if (res.status === 200 && Array.isArray(res.body)) {
         // Read the store AFTER the await so we capture any hasActivity
         // flags set by WSS events during the network request.
+        const storeState = useSessionStore.getState();
         const existing = new Map(
-          useSessionStore.getState().sessions.map((s) => [s.id, s]),
+          storeState.sessions.map((s) => [s.id, s]),
         );
+        const deleted = new Set(storeState.deletedSessionIds);
 
-        const mapped: Session[] = res.body.map((s: any) => {
+        const mapped: Session[] = res.body
+          .filter((s: any) => !deleted.has(s.id))
+          .map((s: any) => {
           const prev = existing.get(s.id);
           return {
             id: s.id,
