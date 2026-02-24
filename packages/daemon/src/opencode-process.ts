@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "child_process";
 
 export interface OpenCodeProcessConfig {
   port?: number;
+  cwd?: string;    // Working directory — OpenCode scopes sessions to this directory
   command?: string; // Override for testing (e.g., path to mock executable)
   args?: string[];  // Override args for testing
   onCrash?: (code: number | null, signal: string | null) => void;
@@ -10,6 +11,7 @@ export interface OpenCodeProcessConfig {
 export class OpenCodeProcess {
   private process: ChildProcess | null = null;
   private port: number;
+  private _cwd?: string;
   private command: string;
   private args: string[];
   private _stopping = false; // true during intentional stop/restart
@@ -23,6 +25,7 @@ export class OpenCodeProcess {
       this.args = ["serve", "--port", String(config)];
     } else {
       this.port = config?.port ?? 4096;
+      this._cwd = config?.cwd;
       this.command = config?.command ?? "opencode";
       this.args = config?.args ?? ["serve", "--port", String(this.port)];
       this.onCrash = config?.onCrash;
@@ -41,6 +44,7 @@ export class OpenCodeProcess {
       const child = spawn(this.command, this.args, {
         stdio: ["ignore", "pipe", "pipe"],
         shell: true,
+        cwd: this._cwd,
       });
 
       child.on("error", (err: NodeJS.ErrnoException) => {
@@ -158,6 +162,10 @@ export class OpenCodeProcess {
 
   get baseUrl(): string {
     return `http://localhost:${this.port}`;
+  }
+
+  get cwd(): string | undefined {
+    return this._cwd;
   }
 }
 

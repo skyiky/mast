@@ -244,4 +244,80 @@ describe("OpenCodeProcess", () => {
     assert.equal(crashFired, false, "onCrash should NOT fire during intentional stop");
     proc = null;
   });
+
+  // ===========================================================================
+  // Test: cwd is passed to spawned process
+  // ===========================================================================
+
+  it("cwd is passed to the spawned child process", async () => {
+    // Create a mock script that writes its cwd to a file
+    tempDir = join(tmpdir(), `mast-test-cwd-${Date.now()}`);
+    await mkdir(tempDir, { recursive: true });
+
+    const cwdDir = join(tempDir, "project-dir");
+    await mkdir(cwdDir, { recursive: true });
+
+    const cwdReportPath = join(tempDir, "cwd-report.txt");
+    const cwdMockScript = join(tempDir, "mock-cwd-opencode.mjs");
+
+    const script = `
+import http from "node:http";
+import { writeFileSync } from "node:fs";
+
+// Write actual cwd to a file so the test can verify
+writeFileSync(${JSON.stringify(cwdReportPath).replace(/\\/g, "\\\\")}, process.cwd());
+
+const port = parseInt(process.argv[process.argv.length - 1], 10) || 4096;
+const server = http.createServer((req, res) => {
+  if (req.url === "/global/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+  } else {
+    res.writeHead(404);
+    res.end("Not found");
+  }
+});
+server.listen(port, () => {
+  console.log("Mock CWD OpenCode listening on port " + port);
+});
+process.on("SIGTERM", () => { server.close(() => process.exit(0)); });
+process.on("SIGINT", () => { server.close(() => process.exit(0)); });
+`;
+
+    await writeFile(cwdMockScript, script, "utf-8");
+
+    const port = nextPort();
+    proc = new OpenCodeProcess({
+      port,
+      cwd: cwdDir,
+      command: "node",
+      args: [cwdMockScript, String(port)],
+    });
+
+    assert.equal(proc.cwd, cwdDir, "cwd getter should return configured directory");
+
+    await proc.start();
+    await proc.waitForReady(10, 500);
+
+    // Read the cwd report file written by the mock script
+    const { readFile: readF } = await import("node:fs/promises");
+    const reportedCwd = (await readF(cwdReportPath, "utf-8")).trim();
+
+    // Normalize paths for comparison (Windows path separators)
+    const normalize = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+    assert.equal(
+      normalize(reportedCwd),
+      normalize(cwdDir),
+      `Spawned process cwd should be "${cwdDir}", got "${reportedCwd}"`
+    );
+  });
+
+  // ===========================================================================
+  // Test: cwd getter returns undefined when not configured
+  // ===========================================================================
+
+  it("cwd getter returns undefined when not configured", () => {
+    const p = new OpenCodeProcess({ port: 9999 });
+    assert.equal(p.cwd, undefined, "cwd should be undefined when not set");
+  });
 });
