@@ -69,7 +69,7 @@ describe("Relay chain", () => {
     assert.equal(body.daemonConnected, true);
   });
 
-  it("4. GET /sessions returns what fake OpenCode returns", async () => {
+  it("4. GET /sessions returns sessions from fake OpenCode (enriched with project)", async () => {
     const fakeSessions = [{ id: "sess-1", createdAt: "2026-01-01" }];
     stack.fakeOpenCode.handle("GET", "/session", {
       status: 200,
@@ -78,7 +78,11 @@ describe("Relay chain", () => {
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, fakeSessions);
+    const sessions = res.body as Array<{ id: string; project: string }>;
+    assert.ok(Array.isArray(sessions));
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, "sess-1");
+    assert.equal(sessions[0].project, "test-project");
   });
 
   it("5. POST /sessions with body forwards body to fake OpenCode", async () => {
@@ -128,15 +132,17 @@ describe("Relay chain", () => {
     assert.equal(res.status, 200);
   });
 
-  it("11. fake OpenCode returning 500 is relayed as 500", async () => {
+  it("11. fake OpenCode returning 500 on session list returns empty array (error absorbed)", async () => {
     stack.fakeOpenCode.handle("GET", "/session", {
       status: 500,
       body: { error: "Internal Server Error" },
     });
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
-    assert.equal(res.status, 500);
-    assert.deepEqual(res.body, { error: "Internal Server Error" });
+    // In multi-project mode, listAllSessions() catches per-project errors
+    // and returns an empty array for that project instead of relaying the error.
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, []);
   });
 });
 
@@ -181,7 +187,7 @@ describe("Disconnect and reconnect", () => {
       // Reconnect a new relay
       const relay2 = new Relay(
         `ws://localhost:${stack.orchestrator.port}`,
-        stack.fakeOpenCode.baseUrl,
+        stack.projectManager,
       );
       await relay2.connect();
       await sleep(50);

@@ -263,6 +263,10 @@ describe("Phase 1 regression", () => {
 
     const res = await apiRequest(stack.baseUrl, "GET", "/sessions");
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, fakeSessions);
+    const sessions = res.body as Array<{ id: string; project: string }>;
+    assert.ok(Array.isArray(sessions));
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, "sess-1");
+    assert.equal(sessions[0].project, "test-project");
   });
 });

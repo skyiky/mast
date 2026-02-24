@@ -170,21 +170,25 @@ export class Relay {
       const sessionMatch = path.match(/^\/session\/([^/]+)/);
       if (sessionMatch) {
         const sessionId = sessionMatch[1];
-        const baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+        let baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
         if (!baseUrl) {
           // Session not in routing map — try refreshing
           await this.projectManager.listAllSessions();
-          const retryUrl = this.projectManager.getBaseUrlForSession(sessionId);
-          if (!retryUrl) {
-            this.send({
-              type: "http_response",
-              requestId: request.requestId,
-              status: 404,
-              body: { error: `Session "${sessionId}" not found in any project` },
-            } satisfies HttpResponse);
-            return;
-          }
-          await this.forwardRequest(request, retryUrl);
+          baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+        }
+        if (!baseUrl) {
+          // Still not found — fall back to first ready project.
+          // This handles the common single-project case where the session
+          // exists in OpenCode but hasn't been listed yet.
+          baseUrl = this.getFirstReadyBaseUrl();
+        }
+        if (!baseUrl) {
+          this.send({
+            type: "http_response",
+            requestId: request.requestId,
+            status: 404,
+            body: { error: `Session "${sessionId}" not found in any project` },
+          } satisfies HttpResponse);
           return;
         }
         await this.forwardRequest(request, baseUrl);
@@ -514,6 +518,10 @@ export class Relay {
         // Try refreshing session maps
         await this.projectManager.listAllSessions();
         baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+      }
+      if (!baseUrl) {
+        // Still not found — fall back to first ready project (single-project case)
+        baseUrl = this.getFirstReadyBaseUrl();
       }
       if (!baseUrl) {
         // Session no longer exists in any project — skip

@@ -80,7 +80,7 @@ describe("Reconnection & cache sync", () => {
     // Reconnect — the daemon should receive a sync_request and respond
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(200);
@@ -189,7 +189,7 @@ describe("Reconnection & cache sync", () => {
 
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(300);
@@ -242,7 +242,7 @@ describe("Reconnection & cache sync", () => {
 
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(300);
@@ -293,7 +293,7 @@ describe("Reconnection & cache sync", () => {
 
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(300);
@@ -369,7 +369,7 @@ describe("Reconnection & cache sync", () => {
 
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(300);
@@ -405,7 +405,7 @@ describe("Reconnection & cache sync", () => {
 
     const relay2 = new Relay(
       `ws://localhost:${stack.orchestrator.port}`,
-      stack.fakeOpenCode.baseUrl,
+      stack.projectManager,
     );
     await relay2.connect();
     await sleep(300);
@@ -441,7 +441,7 @@ describe("Reconnection & cache sync", () => {
 
       const relay = new Relay(
         `ws://localhost:${stack.orchestrator.port}`,
-        stack.fakeOpenCode.baseUrl,
+        stack.projectManager,
       );
       await relay.connect();
       await sleep(200); // give sync time to complete

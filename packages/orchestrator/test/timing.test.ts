@@ -9,26 +9,35 @@ import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startServer, type ServerHandle } from "../src/server.js";
 import { Relay } from "../../daemon/src/relay.js";
+import { ProjectManager } from "../../daemon/src/project-manager.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
-import { sleep } from "./helpers.js";
+import { sleep, createTestProjectManager } from "./helpers.js";
+import { rm } from "node:fs/promises";
 
 describe("Daemon reconnect timing", () => {
   let server: ServerHandle;
   let fakeOpenCode: FakeOpenCode;
   let relay: Relay;
+  let projectManager: ProjectManager;
+  let tempDir: string;
 
   afterEach(async () => {
     if (relay) await relay.disconnect();
     if (server) await server.close();
     if (fakeOpenCode) await fakeOpenCode.close();
+    if (projectManager) await projectManager.stopAll();
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
   });
 
   async function setup() {
     fakeOpenCode = await createFakeOpenCode();
     server = await startServer(0);
+    const result = await createTestProjectManager(fakeOpenCode.port);
+    projectManager = result.projectManager;
+    tempDir = result.tempDir;
     return {
       orchestratorPort: server.port,
-      fakeOpenCodeUrl: fakeOpenCode.baseUrl,
+      projectManager,
     };
   }
 
@@ -108,11 +117,11 @@ describe("Daemon reconnect timing", () => {
   });
 
   it("28. successful reconnect resets the backoff counter", async () => {
-    const { orchestratorPort, fakeOpenCodeUrl } = await setup();
+    const { orchestratorPort, projectManager: pm } = await setup();
 
     relay = new Relay(
       `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
+      pm,
     );
     await relay.connect();
     await sleep(50);
@@ -130,7 +139,7 @@ describe("Daemon reconnect timing", () => {
     // Reconnect with a fresh relay
     relay = new Relay(
       `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
+      pm,
     );
     await relay.connect();
     await sleep(100);
@@ -142,11 +151,11 @@ describe("Daemon reconnect timing", () => {
   });
 
   it("29. disconnect() stops reconnection attempts", async () => {
-    const { orchestratorPort, fakeOpenCodeUrl } = await setup();
+    const { orchestratorPort, projectManager: pm } = await setup();
 
     relay = new Relay(
       `ws://localhost:${orchestratorPort}`,
-      fakeOpenCodeUrl,
+      pm,
     );
     await relay.connect();
     await sleep(50);

@@ -280,6 +280,39 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     return c.json(result.body as object, result.status as 200);
   });
 
+  // --- Project management routes ---
+
+  // List managed projects
+  app.get("/projects", async (c) => {
+    const userId = c.get("userId");
+    const daemon = getDaemon(userId);
+    const result = await forward(daemon, "GET", "/project");
+    return c.json(result.body as object, result.status as 200);
+  });
+
+  // Add a new project
+  app.post("/projects", async (c) => {
+    const userId = c.get("userId");
+    const daemon = getDaemon(userId);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid body" }, 400);
+    }
+    const result = await forward(daemon, "POST", "/project", body);
+    return c.json(result.body as object, result.status as 200);
+  });
+
+  // Remove a project
+  app.delete("/projects/:name", async (c) => {
+    const userId = c.get("userId");
+    const daemon = getDaemon(userId);
+    const name = c.req.param("name");
+    const result = await forward(daemon, "DELETE", `/project/${encodeURIComponent(name)}`);
+    return c.json(result.body as object, result.status as 200);
+  });
+
   // --- Provider / project info ---
 
   // List providers and models

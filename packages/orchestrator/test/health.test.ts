@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import { HealthMonitor, type HealthState } from "../../daemon/src/health-monitor.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
 import { startPhase4Stack, sleep, type Phase4TestStack } from "./helpers.js";
-import { Relay } from "../../daemon/src/relay.js";
 
 describe("OpenCode health monitoring", () => {
   let fakeOpenCode: FakeOpenCode;
@@ -135,27 +134,32 @@ describe("OpenCode health monitoring", () => {
       let body = await health.json() as any;
       assert.equal(body.daemonConnected, true);
 
-      // The daemon relay sends status: opencodeReady=true on connect.
-      // Let's send a status: opencodeReady=false manually through the relay's WSS
-      // by making the health monitor trigger a status change.
-
       // Make fake OpenCode unhealthy
       stack.fakeOpenCode.setHealthy(false);
 
-      // Start health monitor on the relay with fast interval
-      const healthMonitor = stack.relay.startHealthMonitor({
+      // Create a HealthMonitor directly — the ProjectManager's health system
+      // was designed for production intervals; here we need fast checks.
+      const monitor = new HealthMonitor({
+        opencodeBaseUrl: stack.fakeOpenCode.baseUrl,
         checkIntervalMs: 50,
         failureThreshold: 2,
+        onStateChange: (_state, ready) => {
+          stack.relay.send({
+            type: "status",
+            opencodeReady: ready,
+          });
+        },
       });
+      monitor.start();
 
       // Wait for enough checks to trigger "down"
       await sleep(200);
 
       // The status should still show daemonConnected=true (the WSS is still up),
       // but we can verify the health monitor detected the failure
-      assert.equal(healthMonitor.state, "down");
+      assert.equal(monitor.state, "down");
 
-      healthMonitor.stop();
+      monitor.stop();
     } finally {
       await stack.close();
     }

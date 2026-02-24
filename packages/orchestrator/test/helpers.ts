@@ -8,6 +8,8 @@
 
 import { startServer, type ServerHandle } from "../src/server.js";
 import { Relay } from "../../daemon/src/relay.js";
+import { ProjectConfig } from "../../daemon/src/project-config.js";
+import { ProjectManager, type ProjectManagerConfig } from "../../daemon/src/project-manager.js";
 import { createFakeOpenCode, type FakeOpenCode } from "./fake-opencode.js";
 import { InMemorySessionStore, type SessionStore } from "../src/session-store.js";
 import {
@@ -17,17 +19,44 @@ import {
 } from "../src/push-notifications.js";
 import { PairingManager } from "../src/pairing.js";
 import { createFakeExpoPush, type FakeExpoPush } from "./fake-expo-push.js";
-import { HARDCODED_API_TOKEN } from "@mast/shared";
+import { HARDCODED_API_TOKEN, type EventMessage, type DaemonStatus } from "@mast/shared";
 import WebSocket from "ws";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 export interface TestStack {
   orchestrator: ServerHandle;
   relay: Relay;
   fakeOpenCode: FakeOpenCode;
+  projectManager: ProjectManager;
   /** Base URL for HTTP requests to orchestrator */
   baseUrl: string;
   /** Teardown everything */
   close(): Promise<void>;
+}
+
+/**
+ * Create a ProjectManager wrapping a single fake OpenCode instance.
+ * Uses a temp dir for the project config file.
+ * Returns the ProjectManager and the temp dir path (for cleanup).
+ */
+export async function createTestProjectManager(
+  fakeOpenCodePort: number,
+  configOverrides?: Partial<ProjectManagerConfig>,
+): Promise<{ projectManager: ProjectManager; tempDir: string }> {
+  const tempDir = await mkdtemp(join(tmpdir(), "mast-test-"));
+  const projectConfig = new ProjectConfig(tempDir);
+  await projectConfig.save([
+    { name: "test-project", directory: tempDir },
+  ]);
+  const projectManager = new ProjectManager(projectConfig, {
+    basePort: fakeOpenCodePort,
+    skipOpenCode: true,
+    ...configOverrides,
+  });
+  await projectManager.startAll();
+  return { projectManager, tempDir };
 }
 
 export interface Phase3TestStack extends TestStack {
@@ -52,10 +81,25 @@ export async function startStack(): Promise<TestStack> {
   // 2. Start orchestrator on port 0 (ephemeral) with dev mode
   const orchestrator = await startServer(0, { devMode: true });
 
-  // 3. Start daemon relay connecting to orchestrator, pointing at fake OpenCode
-  const relay = new Relay(
+  // 3. Create ProjectManager wrapping the fake OpenCode
+  //    Wire onEvent callback via closure — relay variable is captured by reference
+  //    and assigned below (same pattern as daemon/src/index.ts)
+  let relay: Relay;
+  const { projectManager, tempDir } = await createTestProjectManager(fakeOpenCode.port, {
+    onEvent: (_projectName, event) => {
+      const msg: EventMessage = {
+        type: "event",
+        event: { type: event.type, data: event.data },
+        timestamp: new Date().toISOString(),
+      };
+      relay?.send(msg);
+    },
+  });
+
+  // 4. Start daemon relay connecting to orchestrator, using ProjectManager
+  relay = new Relay(
     `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
+    projectManager,
   );
   await relay.connect();
 
@@ -69,11 +113,14 @@ export async function startStack(): Promise<TestStack> {
     orchestrator,
     relay,
     fakeOpenCode,
+    projectManager,
     baseUrl,
     async close() {
       await result.relay.disconnect();
       await orchestrator.close();
       await fakeOpenCode.close();
+      await projectManager.stopAll();
+      await rm(tempDir, { recursive: true, force: true });
     },
   };
 
@@ -111,10 +158,22 @@ export async function startPhase3Stack(opts?: {
   // Wire the phone connected check to the actual orchestrator
   phoneConnectedFn = (userId: string) => orchestrator.phoneConnections.hasConnectedPhones(userId);
 
-  // 4. Start daemon relay
-  const relay = new Relay(
+  // 4. Create ProjectManager + start daemon relay
+  //    Wire onEvent callback via closure (same pattern as daemon/src/index.ts)
+  let relay: Relay;
+  const { projectManager, tempDir } = await createTestProjectManager(fakeOpenCode.port, {
+    onEvent: (_projectName, event) => {
+      const msg: EventMessage = {
+        type: "event",
+        event: { type: event.type, data: event.data },
+        timestamp: new Date().toISOString(),
+      };
+      relay?.send(msg);
+    },
+  });
+  relay = new Relay(
     `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
+    projectManager,
   );
   await relay.connect();
 
@@ -127,6 +186,7 @@ export async function startPhase3Stack(opts?: {
     relay,
     fakeOpenCode,
     fakeExpoPush,
+    projectManager,
     store,
     pushNotifier,
     deduplicator,
@@ -137,6 +197,8 @@ export async function startPhase3Stack(opts?: {
       await orchestrator.close();
       await fakeOpenCode.close();
       await fakeExpoPush.close();
+      await projectManager.stopAll();
+      await rm(tempDir, { recursive: true, force: true });
     },
   };
 
@@ -275,10 +337,22 @@ export async function startPhase4Stack(opts?: {
   // Wire the phone connected check to the actual orchestrator
   phoneConnectedFn = (userId: string) => orchestrator.phoneConnections.hasConnectedPhones(userId);
 
-  // 4. Start daemon relay (unless skipped)
-  const relay = new Relay(
+  // 4. Create ProjectManager + start daemon relay (unless skipped)
+  //    Wire onEvent callback via closure (same pattern as daemon/src/index.ts)
+  let relay: Relay;
+  const { projectManager, tempDir } = await createTestProjectManager(fakeOpenCode.port, {
+    onEvent: (_projectName, event) => {
+      const msg: EventMessage = {
+        type: "event",
+        event: { type: event.type, data: event.data },
+        timestamp: new Date().toISOString(),
+      };
+      relay?.send(msg);
+    },
+  });
+  relay = new Relay(
     `ws://localhost:${orchestrator.port}`,
-    fakeOpenCode.baseUrl,
+    projectManager,
   );
   if (!opts?.skipDaemonConnect) {
     await relay.connect();
@@ -292,6 +366,7 @@ export async function startPhase4Stack(opts?: {
     relay,
     fakeOpenCode,
     fakeExpoPush,
+    projectManager,
     store,
     pushNotifier,
     deduplicator,
@@ -303,6 +378,8 @@ export async function startPhase4Stack(opts?: {
       await orchestrator.close();
       await fakeOpenCode.close();
       await fakeExpoPush.close();
+      await projectManager.stopAll();
+      await rm(tempDir, { recursive: true, force: true });
     },
   };
 
