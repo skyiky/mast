@@ -1,24 +1,28 @@
 /**
  * Mast Daemon — Entry point.
  *
- * Startup flow:
- * 1. Start OpenCode process (unless MAST_SKIP_OPENCODE=1)
- * 2. Load device key from ~/.mast/device-key.json
- * 3. If key exists → connect to orchestrator as authenticated daemon
- * 4. If no key → run pairing flow:
- *    a. Connect to orchestrator with token=pairing
- *    b. Generate and display 6-digit pairing code
- *    c. Wait for pair_response with device key
- *    d. Save key, disconnect pairing socket, reconnect as authenticated
- * 5. Start health monitoring with auto-restart on crash
+ * Multi-project startup flow:
+ * 1. Load project config from ~/.mast/projects.json
+ * 2. Create ProjectManager and start all OpenCode instances
+ * 3. Load device key from ~/.mast/device-key.json
+ * 4. If key exists → connect to orchestrator as authenticated daemon
+ * 5. If no key → run pairing flow
+ * 6. Start health monitoring for all projects
  */
 
 import WebSocket from "ws";
 import QRCode from "qrcode";
-import { generatePairingCode, type PairRequest, type PairResponse } from "@mast/shared";
-import { OpenCodeProcess } from "./opencode-process.js";
+import {
+  generatePairingCode,
+  type PairRequest,
+  type PairResponse,
+  type EventMessage,
+  type DaemonStatus,
+} from "@mast/shared";
 import { Relay } from "./relay.js";
 import { KeyStore } from "./key-store.js";
+import { ProjectConfig } from "./project-config.js";
+import { ProjectManager } from "./project-manager.js";
 
 const ORCHESTRATOR_URL =
   process.env.MAST_ORCHESTRATOR_URL ?? "ws://localhost:3000";
@@ -30,24 +34,85 @@ process.title = "mast-daemon";
 async function main() {
   console.log("Mast daemon starting...");
 
-  // --- Start OpenCode ---
-  const opencode = new OpenCodeProcess({
-    port: OPENCODE_PORT,
-    onCrash: (code, signal) => {
-      console.error(
-        `[daemon] OpenCode crashed (code=${code}, signal=${signal}), will auto-restart via health monitor`
+  const skipOpenCode = process.env.MAST_SKIP_OPENCODE === "1";
+
+  // --- Load project config ---
+  const projectConfig = new ProjectConfig();
+  const projects = await projectConfig.load();
+
+  if (projects.length === 0) {
+    console.warn(
+      "[daemon] No projects configured in ~/.mast/projects.json",
+    );
+    console.warn(
+      "[daemon] Add a project: POST /project with { name, directory }",
+    );
+    console.warn(
+      "[daemon] Or create ~/.mast/projects.json manually:",
+    );
+    console.warn(
+      '  { "projects": [{ "name": "my-app", "directory": "/path/to/repo" }] }',
+    );
+  } else {
+    console.log(
+      `[daemon] Found ${projects.length} project(s): ${projects.map((p) => p.name).join(", ")}`,
+    );
+  }
+
+  // --- Create ProjectManager and start all instances ---
+  let relay: Relay | null = null;
+
+  const projectManager = new ProjectManager(projectConfig, {
+    basePort: OPENCODE_PORT,
+    skipOpenCode,
+    // Wire SSE events → relay → orchestrator
+    onEvent: (_projectName, event) => {
+      if (!relay) return;
+      const msg: EventMessage = {
+        type: "event",
+        event: {
+          type: event.type,
+          data: event.data,
+        },
+        timestamp: new Date().toISOString(),
+      };
+      relay.send(msg);
+    },
+    // Wire health state changes → relay → orchestrator
+    onHealthStateChange: (_projectName, _state, ready) => {
+      if (!relay) return;
+      // Report overall readiness: true only if ALL projects are ready
+      const status: DaemonStatus = {
+        type: "status",
+        opencodeReady: projectManager.allReady,
+      };
+      relay.send(status);
+    },
+    // Wire recovery → restart the project's OpenCode process
+    onRecoveryNeeded: async (projectName) => {
+      console.log(
+        `[daemon] Health monitor triggered recovery for "${projectName}" — restarting OpenCode`,
       );
+      const managed = projectManager.getProject(projectName);
+      if (managed) {
+        try {
+          await managed.opencode.restart();
+        } catch (err) {
+          console.error(
+            `[daemon] Failed to restart OpenCode for "${projectName}":`,
+            err,
+          );
+        }
+      }
     },
   });
 
-  if (process.env.MAST_SKIP_OPENCODE !== "1") {
-    console.log("Starting opencode serve...");
-    await opencode.start();
-    console.log("Waiting for OpenCode to be ready...");
-    await opencode.waitForReady();
-    console.log("OpenCode is ready");
-  } else {
-    console.log("Skipping opencode start (MAST_SKIP_OPENCODE=1)");
+  if (projects.length > 0) {
+    console.log("[daemon] Starting OpenCode instances...");
+    const started = await projectManager.startAll();
+    console.log(
+      `[daemon] ${started.length}/${projects.length} project(s) started`,
+    );
   }
 
   // --- Load or acquire device key ---
@@ -64,29 +129,20 @@ async function main() {
   }
 
   // --- Connect to orchestrator ---
-  const relay = new Relay(ORCHESTRATOR_URL, opencode.baseUrl, deviceKey);
+  relay = new Relay(ORCHESTRATOR_URL, projectManager, deviceKey);
   console.log(`[daemon] Connecting to orchestrator at ${ORCHESTRATOR_URL}...`);
   await relay.connect();
 
-  // --- Start health monitoring with auto-restart ---
-  relay.startHealthMonitor({
-    onRecoveryNeeded: async () => {
-      console.log("[daemon] Health monitor triggered recovery — restarting OpenCode");
-      try {
-        await opencode.restart();
-      } catch (err) {
-        console.error("[daemon] Failed to restart OpenCode:", err);
-      }
-    },
-  });
+  // --- Start health monitoring for all projects ---
+  relay.startHealthMonitoring();
 
   // --- Handle shutdown ---
   const shutdown = async () => {
     console.log("[daemon] Shutting down...");
-    await relay.disconnect();
-    if (process.env.MAST_SKIP_OPENCODE !== "1") {
-      await opencode.stop();
+    if (relay) {
+      await relay.disconnect();
     }
+    await projectManager.stopAll();
     process.exit(0);
   };
 
@@ -154,7 +210,9 @@ function runPairingFlow(orchestratorUrl: string): Promise<string> {
             resolve(msg.deviceKey);
           } else {
             ws.close();
-            reject(new Error(`Pairing failed: ${msg.error ?? "unknown error"}`));
+            reject(
+              new Error(`Pairing failed: ${msg.error ?? "unknown error"}`),
+            );
           }
         }
       } catch (err) {

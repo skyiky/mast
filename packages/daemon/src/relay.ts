@@ -10,24 +10,26 @@ import {
   type SyncResponse,
   HARDCODED_DEVICE_KEY,
 } from "@mast/shared";
-import { SseSubscriber, type SseEvent } from "./sse-client.js";
-import { HealthMonitor } from "./health-monitor.js";
+import type { SseEvent } from "./sse-client.js";
+import type { ProjectManager } from "./project-manager.js";
 
 export class Relay {
   private ws: WebSocket | null = null;
-  private opencodeBaseUrl: string;
   private orchestratorUrl: string;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private reconnecting = false;
   private shouldReconnect = true;
   private reconnectAttempt = 0;
-  private sseSubscriber: SseSubscriber | null = null;
-  private healthMonitor: HealthMonitor | null = null;
   private _deviceKey: string;
+  private projectManager: ProjectManager;
 
-  constructor(orchestratorUrl: string, opencodeBaseUrl: string, deviceKey?: string) {
+  constructor(
+    orchestratorUrl: string,
+    projectManager: ProjectManager,
+    deviceKey?: string,
+  ) {
     this.orchestratorUrl = orchestratorUrl;
-    this.opencodeBaseUrl = opencodeBaseUrl;
+    this.projectManager = projectManager;
     this._deviceKey = deviceKey ?? HARDCODED_DEVICE_KEY;
   }
 
@@ -43,18 +45,18 @@ export class Relay {
         this.reconnecting = false;
         this.reconnectAttempt = 0;
 
-        // Send initial status
+        // Send initial status — report ready only if all projects are ready
         const status: DaemonStatus = {
           type: "status",
-          opencodeReady: true,
+          opencodeReady: this.projectManager.allReady,
         };
         this.send(status);
 
         // Start heartbeat
         this.startHeartbeat();
 
-        // Start SSE subscription to OpenCode events
-        this.startSseSubscription();
+        // Start SSE subscriptions for all projects
+        this.projectManager.startAllSse();
 
         resolve();
       });
@@ -69,10 +71,10 @@ export class Relay {
 
       ws.on("close", (code, reason) => {
         console.log(
-          `WebSocket closed (code=${code}, reason=${reason.toString()})`
+          `WebSocket closed (code=${code}, reason=${reason.toString()})`,
         );
         this.stopHeartbeat();
-        this.stopSseSubscription();
+        this.projectManager.stopAllSse();
         this.ws = null;
 
         if (this.shouldReconnect) {
@@ -114,58 +116,99 @@ export class Relay {
     }
   }
 
+  /**
+   * Route an HTTP request to the correct OpenCode instance (or handle internally).
+   *
+   * Routing rules:
+   *   GET  /session           → aggregate listAllSessions() from ProjectManager
+   *   POST /session           → route to project specified in body.project
+   *   /session/:id/*          → lookup session→project mapping, forward to that instance
+   *   GET  /project           → list managed projects (internal)
+   *   POST /project           → add project (internal)
+   *   DELETE /project/:name   → remove project (internal)
+   *   Everything else         → forward to first ready project (fallback for /global/health etc.)
+   */
   private async relayRequest(request: HttpRequest): Promise<void> {
     try {
-      // Build URL
-      let url = `${this.opencodeBaseUrl}${request.path}`;
-      if (request.query && Object.keys(request.query).length > 0) {
-        const params = new URLSearchParams(request.query);
-        url += `?${params.toString()}`;
+      const { method, path } = request;
+
+      // --- Project management endpoints (internal) ---
+      if (path === "/project" || path.startsWith("/project/")) {
+        await this.handleProjectRequest(request);
+        return;
       }
 
-      // Build fetch options
-      const fetchOptions: RequestInit = {
-        method: request.method,
-      };
-
-      if (
-        request.body !== undefined &&
-        ["POST", "PUT", "PATCH"].includes(request.method.toUpperCase())
-      ) {
-        fetchOptions.body = JSON.stringify(request.body);
-        fetchOptions.headers = {
-          "Content-Type": "application/json",
-        };
+      // --- Session listing (aggregate) ---
+      if (method === "GET" && path === "/session") {
+        const sessions = await this.projectManager.listAllSessions();
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 200,
+          body: sessions,
+        } satisfies HttpResponse);
+        return;
       }
 
-      const res = await fetch(url, fetchOptions);
-
-      // Read response body
-      let body: unknown;
-      const text = await res.text();
-      if (text.length === 0) {
-        body = null;
-      } else {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          body = text;
+      // --- Session creation (route to specified project) ---
+      if (method === "POST" && path === "/session") {
+        const baseUrl = await this.resolveBaseUrlForNewSession(request);
+        if (!baseUrl) {
+          this.send({
+            type: "http_response",
+            requestId: request.requestId,
+            status: 400,
+            body: { error: "No project specified or project not found" },
+          } satisfies HttpResponse);
+          return;
         }
+        await this.forwardRequest(request, baseUrl);
+        return;
       }
 
-      const response: HttpResponse = {
-        type: "http_response",
-        requestId: request.requestId,
-        status: res.status,
-        body,
-      };
-      this.send(response);
+      // --- Session-scoped requests (route by session ID) ---
+      const sessionMatch = path.match(/^\/session\/([^/]+)/);
+      if (sessionMatch) {
+        const sessionId = sessionMatch[1];
+        const baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+        if (!baseUrl) {
+          // Session not in routing map — try refreshing
+          await this.projectManager.listAllSessions();
+          const retryUrl = this.projectManager.getBaseUrlForSession(sessionId);
+          if (!retryUrl) {
+            this.send({
+              type: "http_response",
+              requestId: request.requestId,
+              status: 404,
+              body: { error: `Session "${sessionId}" not found in any project` },
+            } satisfies HttpResponse);
+            return;
+          }
+          await this.forwardRequest(request, retryUrl);
+          return;
+        }
+        await this.forwardRequest(request, baseUrl);
+        return;
+      }
+
+      // --- Fallback: forward to first ready project (e.g., /global/health) ---
+      const fallbackUrl = this.getFirstReadyBaseUrl();
+      if (fallbackUrl) {
+        await this.forwardRequest(request, fallbackUrl);
+      } else {
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 503,
+          body: { error: "No projects are ready" },
+        } satisfies HttpResponse);
+      }
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error";
       console.error(
         `Relay error for ${request.method} ${request.path}:`,
-        errorMessage
+        errorMessage,
       );
 
       const response: HttpResponse = {
@@ -176,6 +219,230 @@ export class Relay {
       };
       this.send(response);
     }
+  }
+
+  /**
+   * Forward an HTTP request to a specific OpenCode instance's base URL.
+   */
+  private async forwardRequest(
+    request: HttpRequest,
+    baseUrl: string,
+  ): Promise<void> {
+    let url = `${baseUrl}${request.path}`;
+    if (request.query && Object.keys(request.query).length > 0) {
+      const params = new URLSearchParams(request.query);
+      url += `?${params.toString()}`;
+    }
+
+    const fetchOptions: RequestInit = {
+      method: request.method,
+    };
+
+    if (
+      request.body !== undefined &&
+      ["POST", "PUT", "PATCH"].includes(request.method.toUpperCase())
+    ) {
+      fetchOptions.body = JSON.stringify(request.body);
+      fetchOptions.headers = {
+        "Content-Type": "application/json",
+      };
+    }
+
+    const res = await fetch(url, fetchOptions);
+
+    let body: unknown;
+    const text = await res.text();
+    if (text.length === 0) {
+      body = null;
+    } else {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    }
+
+    // If this was a session creation, register the new session
+    if (
+      request.method === "POST" &&
+      request.path === "/session" &&
+      res.ok &&
+      body &&
+      typeof body === "object" &&
+      "id" in body
+    ) {
+      const sessionId = (body as { id: string }).id;
+      const projectName = this.resolveProjectNameFromBody(request.body);
+      if (projectName) {
+        this.projectManager.registerSession(sessionId, projectName);
+      }
+    }
+
+    const response: HttpResponse = {
+      type: "http_response",
+      requestId: request.requestId,
+      status: res.status,
+      body,
+    };
+    this.send(response);
+  }
+
+  /**
+   * Handle project management requests (internal, not forwarded to OpenCode).
+   *
+   *   GET    /project         → list projects
+   *   POST   /project         → add project { name, directory }
+   *   DELETE /project/:name   → remove project
+   */
+  private async handleProjectRequest(request: HttpRequest): Promise<void> {
+    const { method, path } = request;
+
+    // GET /project — list
+    if (method === "GET" && path === "/project") {
+      const projects = this.projectManager.listProjects();
+      this.send({
+        type: "http_response",
+        requestId: request.requestId,
+        status: 200,
+        body: projects,
+      } satisfies HttpResponse);
+      return;
+    }
+
+    // POST /project — add
+    if (method === "POST" && path === "/project") {
+      const body = request.body as { name?: string; directory?: string } | undefined;
+      if (!body?.name || !body?.directory) {
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 400,
+          body: { error: "name and directory are required" },
+        } satisfies HttpResponse);
+        return;
+      }
+
+      try {
+        const managed = await this.projectManager.addProject(body.name, body.directory);
+        // Start SSE + health for the new project
+        this.projectManager.startSse(body.name);
+        this.projectManager.startHealth(body.name);
+
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 201,
+          body: {
+            name: managed.name,
+            directory: managed.directory,
+            port: managed.port,
+            ready: managed.ready,
+          },
+        } satisfies HttpResponse);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 409,
+          body: { error: message },
+        } satisfies HttpResponse);
+      }
+      return;
+    }
+
+    // DELETE /project/:name — remove
+    const deleteMatch = path.match(/^\/project\/(.+)$/);
+    if (method === "DELETE" && deleteMatch) {
+      const projectName = decodeURIComponent(deleteMatch[1]);
+      try {
+        await this.projectManager.removeProject(projectName);
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 200,
+          body: { removed: projectName },
+        } satisfies HttpResponse);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 404,
+          body: { error: message },
+        } satisfies HttpResponse);
+      }
+      return;
+    }
+
+    // Unknown project route
+    this.send({
+      type: "http_response",
+      requestId: request.requestId,
+      status: 404,
+      body: { error: "Unknown project endpoint" },
+    } satisfies HttpResponse);
+  }
+
+  /**
+   * Resolve the OpenCode base URL for a new session creation.
+   * Looks for `project` field in the request body.
+   * If only one project exists, uses that one (no project field needed).
+   */
+  private async resolveBaseUrlForNewSession(
+    request: HttpRequest,
+  ): Promise<string | null> {
+    const projectName = this.resolveProjectNameFromBody(request.body);
+
+    if (projectName) {
+      return this.projectManager.getBaseUrlForProject(projectName);
+    }
+
+    // If only one project, use it implicitly
+    const projects = this.projectManager.listProjects();
+    if (projects.length === 1) {
+      return this.projectManager.getBaseUrlForProject(projects[0].name);
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract project name from a request body (if present).
+   */
+  private resolveProjectNameFromBody(body: unknown): string | null {
+    if (body && typeof body === "object" && "project" in body) {
+      return (body as { project: string }).project;
+    }
+    return null;
+  }
+
+  /**
+   * Get the base URL of the first ready project (fallback for unscoped requests).
+   */
+  private getFirstReadyBaseUrl(): string | null {
+    const projects = this.projectManager.listProjects();
+    for (const p of projects) {
+      if (p.ready) {
+        return this.projectManager.getBaseUrlForProject(p.name);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Start health monitoring for all projects.
+   * Wires health state changes to send DaemonStatus over WSS.
+   */
+  startHealthMonitoring(): void {
+    this.projectManager.startAllHealth();
+  }
+
+  /**
+   * Stop health monitoring for all projects.
+   */
+  stopHealthMonitoring(): void {
+    this.projectManager.stopAllHealth();
   }
 
   private startHeartbeat(): void {
@@ -206,7 +473,7 @@ export class Relay {
     while (this.shouldReconnect) {
       const exponentialDelay = Math.min(
         baseDelay * Math.pow(2, this.reconnectAttempt),
-        maxDelay
+        maxDelay,
       );
       // Add jitter: random 0-30% of delay
       const jitter = exponentialDelay * Math.random() * 0.3;
@@ -214,7 +481,7 @@ export class Relay {
 
       this.reconnectAttempt++;
       console.log(
-        `Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempt})...`
+        `Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempt})...`,
       );
 
       await sleep(delay);
@@ -232,43 +499,29 @@ export class Relay {
     this.reconnecting = false;
   }
 
-  private startSseSubscription(): void {
-    this.stopSseSubscription();
-    this.sseSubscriber = new SseSubscriber(this.opencodeBaseUrl);
-
-    // Fire and forget — the subscriber runs until stopped
-    this.sseSubscriber.subscribe((event: SseEvent) => {
-      const msg: EventMessage = {
-        type: "event",
-        event: {
-          type: event.type,
-          data: event.data,
-        },
-        timestamp: new Date().toISOString(),
-      };
-      this.send(msg);
-    }).catch((err) => {
-      console.error("[relay] SSE subscription error:", err);
-    });
-
-    console.log("[relay] SSE subscription started");
-  }
-
-  private stopSseSubscription(): void {
-    if (this.sseSubscriber) {
-      this.sseSubscriber.stop();
-      this.sseSubscriber = null;
-    }
-  }
-
+  /**
+   * Handle sync request — iterate all projects' sessions.
+   * For each cached session ID, find which project owns it and
+   * fetch missed messages from that project's OpenCode instance.
+   */
   private async handleSyncRequest(request: SyncRequest): Promise<void> {
     const sessions: SyncResponse["sessions"] = [];
 
     for (const sessionId of request.cachedSessionIds) {
+      // Find which project owns this session
+      let baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+      if (!baseUrl) {
+        // Try refreshing session maps
+        await this.projectManager.listAllSessions();
+        baseUrl = this.projectManager.getBaseUrlForSession(sessionId);
+      }
+      if (!baseUrl) {
+        // Session no longer exists in any project — skip
+        continue;
+      }
+
       try {
-        const res = await fetch(
-          `${this.opencodeBaseUrl}/session/${sessionId}/message`,
-        );
+        const res = await fetch(`${baseUrl}/session/${sessionId}/message`);
 
         if (res.status === 404) {
           // Session deleted — skip (orchestrator will handle)
@@ -323,42 +576,7 @@ export class Relay {
     this.send(response);
   }
 
-  /**
-   * Start OpenCode health monitoring.
-   * The health monitor periodically checks /global/health and fires callbacks
-   * on state changes.
-   */
-  startHealthMonitor(config?: {
-    checkIntervalMs?: number;
-    failureThreshold?: number;
-    onRecoveryNeeded?: () => Promise<void>;
-  }): HealthMonitor {
-    this.stopHealthMonitor();
-    this.healthMonitor = new HealthMonitor({
-      opencodeBaseUrl: this.opencodeBaseUrl,
-      checkIntervalMs: config?.checkIntervalMs,
-      failureThreshold: config?.failureThreshold,
-      onStateChange: (_state, ready) => {
-        const status: DaemonStatus = {
-          type: "status",
-          opencodeReady: ready,
-        };
-        this.send(status);
-      },
-      onRecoveryNeeded: config?.onRecoveryNeeded,
-    });
-    this.healthMonitor.start();
-    return this.healthMonitor;
-  }
-
-  stopHealthMonitor(): void {
-    if (this.healthMonitor) {
-      this.healthMonitor.stop();
-      this.healthMonitor = null;
-    }
-  }
-
-  private send(msg: unknown): void {
+  send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
@@ -367,8 +585,8 @@ export class Relay {
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
     this.stopHeartbeat();
-    this.stopSseSubscription();
-    this.stopHealthMonitor();
+    this.projectManager.stopAllSse();
+    this.projectManager.stopAllHealth();
 
     if (this.ws) {
       const ws = this.ws;
@@ -380,7 +598,6 @@ export class Relay {
         ws.on("close", () => resolve());
         ws.close();
         // Safety timeout — don't hang forever if close event never fires
-        // Use unref() so this timer doesn't prevent process exit
         const timer = setTimeout(resolve, 2000);
         if (typeof timer === "object" && "unref" in timer) timer.unref();
       });
