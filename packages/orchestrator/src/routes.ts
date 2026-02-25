@@ -4,7 +4,7 @@ import type { DaemonConnection } from "./daemon-connection.js";
 import type { PhoneConnectionManager } from "./phone-connections.js";
 import type { SessionStore } from "./session-store.js";
 import type { PairingManager } from "./pairing.js";
-import { verifyJwt, DEV_USER_ID } from "./auth.js";
+import { verifyJwt, hasJwks, DEV_USER_ID } from "./auth.js";
 
 // ---------------------------------------------------------------------------
 // Hono variable typing
@@ -43,7 +43,7 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     store,
     pairingManager,
     jwtSecret,
-    devMode = !jwtSecret,
+    devMode = !jwtSecret && !hasJwks(),
     supabaseStore,
   } = deps;
 
@@ -84,8 +84,8 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
       return;
     }
 
-    // JWT validation
-    if (jwtSecret) {
+    // JWT validation (ES256 via JWKS, or HS256 via secret)
+    if (hasJwks() || jwtSecret) {
       try {
         const payload = verifyJwt(token, jwtSecret);
         c.set("userId", payload.sub);

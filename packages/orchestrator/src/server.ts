@@ -10,7 +10,7 @@ import type { SessionStore } from "./session-store.js";
 import type { PushNotifier } from "./push-notifications.js";
 import { PairingManager } from "./pairing.js";
 import { EventTimestampTracker, buildSyncRequest, processSyncResponse } from "./sync.js";
-import { verifyJwt, DEV_USER_ID } from "./auth.js";
+import { verifyJwt, hasJwks, DEV_USER_ID } from "./auth.js";
 import type { SupabaseSessionStore } from "./supabase-store.js";
 
 export interface ServerConfig {
@@ -50,7 +50,7 @@ export function startServer(
     const pushNotifier = config?.pushNotifier;
     const pairingManager = config?.pairingManager ?? new PairingManager();
     const jwtSecret = config?.jwtSecret;
-    const devMode = config?.devMode ?? !jwtSecret;
+    const devMode = config?.devMode ?? (!jwtSecret && !hasJwks());
     const supabaseStore = config?.supabaseStore;
 
     /** Per-user event timestamp trackers */
@@ -303,7 +303,7 @@ export function startServer(
 
         if (devMode && token === HARDCODED_API_TOKEN) {
           userId = DEV_USER_ID;
-        } else if (jwtSecret) {
+        } else if (hasJwks() || jwtSecret) {
           try {
             const payload = verifyJwt(token, jwtSecret);
             userId = payload.sub;

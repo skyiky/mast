@@ -17,6 +17,7 @@ import { InMemorySessionStore } from "./session-store.js";
 import { SupabaseSessionStore } from "./supabase-store.js";
 import { PushNotifier, PushDeduplicator } from "./push-notifications.js";
 import { PairingManager } from "./pairing.js";
+import { initJwks, hasJwks } from "./auth.js";
 import type { SessionStore } from "./session-store.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
@@ -24,10 +25,21 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 async function main() {
   // --- Auth config ---
   const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-  const devMode = process.env.MAST_DEV_MODE === "1" || !jwtSecret;
+  const supabaseUrl = process.env.SUPABASE_URL;
 
+  // Fetch JWKS from Supabase for ES256 JWT verification
+  if (supabaseUrl) {
+    await initJwks(supabaseUrl);
+  }
+
+  const jwtEnabled = hasJwks() || !!jwtSecret;
+  const devMode = process.env.MAST_DEV_MODE === "1" || !jwtEnabled;
+
+  if (hasJwks()) {
+    console.log("[orchestrator] ES256 JWT verification enabled (JWKS)");
+  }
   if (jwtSecret) {
-    console.log("[orchestrator] JWT verification enabled");
+    console.log("[orchestrator] HS256 JWT verification enabled (secret)");
   }
   if (devMode) {
     console.log("[orchestrator] Dev mode enabled — hardcoded tokens accepted");
