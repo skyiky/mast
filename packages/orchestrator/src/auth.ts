@@ -65,7 +65,7 @@ export function verifyJwt(token: string, secret: string): JwtPayload {
 
   // Verify HMAC-SHA256 signature
   const data = `${headerB64}.${payloadB64}`;
-  const expectedSig = createHmac("sha256", secret)
+  const expectedSig = createHmac("sha256", Buffer.from(secret, "base64"))
     .update(data)
     .digest("base64url");
 
