@@ -71,6 +71,9 @@ interface SessionState {
   setActiveSessionId: (id: string | null) => void;
   setLoadingSessions: (loading: boolean) => void;
 
+  /** Set the preview text for a session without loading full messages. */
+  setSessionPreview: (sessionId: string, preview: string) => void;
+
   // Streaming message updates (called by WebSocket handler)
   addMessage: (sessionId: string, message: ChatMessage) => void;
   /** Remove a message by ID (e.g. roll back an optimistic send on error). */
@@ -150,6 +153,13 @@ export const useSessionStore = create<SessionState>()(
         : state.sessions,
     })),
   setLoadingSessions: (loading) => set({ loadingSessions: loading }),
+
+  setSessionPreview: (sessionId, preview) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, lastMessagePreview: preview } : s,
+      ),
+    })),
 
   addMessage: (sessionId, message) =>
     set((state) => {

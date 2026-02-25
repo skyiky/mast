@@ -371,6 +371,13 @@ export class Relay {
             ready: managed.ready,
           },
         } satisfies HttpResponse);
+
+        // Broadcast updated readiness — the health monitor won't fire
+        // onStateChange for a newly added ready project (starts "healthy")
+        this.send({
+          type: "status",
+          opencodeReady: this.projectManager.allReady,
+        } satisfies DaemonStatus);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         this.send({
@@ -395,6 +402,12 @@ export class Relay {
           status: 200,
           body: { removed: projectName },
         } satisfies HttpResponse);
+
+        // Broadcast updated readiness — removing a project changes allReady
+        this.send({
+          type: "status",
+          opencodeReady: this.projectManager.allReady,
+        } satisfies DaemonStatus);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         this.send({

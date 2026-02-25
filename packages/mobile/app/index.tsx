@@ -35,6 +35,7 @@ export default function SessionListScreen() {
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const sessions = useSessionStore(useShallow((s) => s.sessions));
   const setSessions = useSessionStore((s) => s.setSessions);
+  const setSessionPreview = useSessionStore((s) => s.setSessionPreview);
   const removeSession = useSessionStore((s) => s.removeSession);
   const loadingSessions = useSessionStore((s) => s.loadingSessions);
   const setLoadingSessions = useSessionStore((s) => s.setLoadingSessions);
@@ -107,13 +108,43 @@ export default function SessionListScreen() {
           };
         });
         setSessions(mapped);
+
+        // Backfill previews for sessions that don't have one yet.
+        // Fire in parallel, don't block the UI — previews will pop in.
+        const needPreview = mapped.filter((s) => !s.lastMessagePreview);
+        if (needPreview.length > 0) {
+          Promise.all(
+            needPreview.map(async (s) => {
+              try {
+                const res = await api.messages(s.id);
+                if (res.status >= 200 && res.status < 300 && Array.isArray(res.body)) {
+                  // Find the last user message (OpenCode shape: role is at info.role)
+                  for (let i = res.body.length - 1; i >= 0; i--) {
+                    const m = res.body[i] as any;
+                    const role = m.info?.role ?? m.role;
+                    if (role === "user") {
+                      const textPart = m.parts?.find(
+                        (p: any) => p.type === "text",
+                      );
+                      const text = textPart?.text ?? textPart?.content;
+                      if (text) setSessionPreview(s.id, text);
+                      break;
+                    }
+                  }
+                }
+              } catch {
+                // Non-critical — preview just won't show
+              }
+            }),
+          );
+        }
       }
     } catch (err) {
       console.error("[sessions] Failed to load:", err);
     } finally {
       setLoadingSessions(false);
     }
-  }, [api, setSessions, setLoadingSessions]);
+  }, [api, setSessions, setSessionPreview, setLoadingSessions]);
 
   useFocusEffect(
     useCallback(() => {

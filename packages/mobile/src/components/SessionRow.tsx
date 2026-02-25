@@ -23,9 +23,6 @@ interface SessionRowProps {
 function SessionRowInner({ session, onPress, onLongPress }: SessionRowProps) {
   const { colors } = useTheme();
   const timeAgo = getTimeAgo(session.updatedAt || session.createdAt);
-  // Prefer the enriched project name from multi-project daemon,
-  // fall back to extracting from directory path
-  const projectName = session.project || extractProjectName(session.directory);
 
   return (
     <AnimatedPressable
@@ -76,15 +73,6 @@ function SessionRowInner({ session, onPress, onLongPress }: SessionRowProps) {
             {session.lastMessagePreview}
           </Text>
         ) : null}
-
-        {/* Bottom row: project folder */}
-        {projectName ? (
-          <View style={styles.metaRow}>
-            <Text style={[styles.metaLabel, { color: colors.dim }]}>
-              {projectName}
-            </Text>
-          </View>
-        ) : null}
       </View>
     </AnimatedPressable>
   );
@@ -130,15 +118,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     lineHeight: 17,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 5,
-  },
-  metaLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-  },
 });
 
 const SessionRow = React.memo(SessionRowInner);
@@ -158,11 +137,4 @@ function getTimeAgo(isoDate: string): string {
   if (diffHr < 24) return `${diffHr}h`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d`;
-}
-
-/** Extract the last path segment as the project name. */
-function extractProjectName(directory?: string): string | null {
-  if (!directory) return null;
-  const segments = directory.split(/[/\\]/).filter(Boolean);
-  return segments[segments.length - 1] || null;
 }

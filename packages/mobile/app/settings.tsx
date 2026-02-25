@@ -117,7 +117,7 @@ export default function SettingsScreen() {
     setAddingProject(true);
     try {
       const res = await api.addProject(name, dir);
-      if (res.status === 200) {
+      if (res.status >= 200 && res.status < 300) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setAddProjectVisible(false);
         setProjectName("");
