@@ -7,7 +7,7 @@
  * 3. WebBrowser.openAuthSessionAsync() opens the URL in an in-app browser
  * 4. GitHub redirects back to mast:// with access_token + refresh_token in the fragment
  * 5. We parse the tokens and call supabase.auth.setSession()
- * 6. _layout.tsx auth gate detects the session and navigates away
+ * 6. On success, navigate to / (index redirect guards handle routing based on pairing state)
  */
 
 import React, { useState } from "react";
@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { makeRedirectUri } from "expo-auth-session";
+import { useRouter } from "expo-router";
 import { supabase } from "../src/lib/supabase";
 import { useTheme } from "../src/lib/ThemeContext";
 import { fonts } from "../src/lib/themes";
@@ -28,6 +29,7 @@ import AnimatedPressable from "../src/components/AnimatedPressable";
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
+  const router = useRouter();
   const { colors } = useTheme();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +92,10 @@ export default function LoginScreen() {
 
       if (sessionError) {
         setError(sessionError.message);
+      } else {
+        // Auth succeeded — navigate to index; redirect guards route based on pairing state
+        router.replace("/");
       }
-      // On success, the _layout.tsx auth gate will navigate away
     } catch (err) {
       setError("login failed — check your connection");
     } finally {

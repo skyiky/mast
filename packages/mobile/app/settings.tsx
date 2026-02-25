@@ -82,7 +82,7 @@ export default function SettingsScreen() {
   const handleSignOut = () => {
     Alert.alert(
       "sign out",
-      "this will sign you out and clear all connection data. continue?",
+      "this will sign you out. your device pairing will be preserved. continue?",
       [
         { text: "cancel", style: "cancel" },
         {
@@ -90,7 +90,7 @@ export default function SettingsScreen() {
           style: "destructive",
           onPress: async () => {
             await supabase.auth.signOut();
-            reset();
+            useConnectionStore.getState().signOut();
             router.replace("/login");
           },
         },

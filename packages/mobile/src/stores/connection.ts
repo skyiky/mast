@@ -27,8 +27,10 @@ interface ConnectionState {
   setWsConnected: (connected: boolean) => void;
   setDaemonStatus: (daemonConnected: boolean, opencodeReady: boolean) => void;
   setPaired: (paired: boolean) => void;
-  /** Reset connection state (sign out). Does NOT clear Supabase session —
-   *  call supabase.auth.signOut() separately. */
+  /** Sign out — clears auth + ephemeral state but preserves pairing/server config.
+   *  Does NOT clear Supabase session — call supabase.auth.signOut() separately. */
+  signOut: () => void;
+  /** Full reset — clears ALL state including pairing. Used by "re-pair device". */
   reset: () => void;
 }
 
@@ -64,6 +66,15 @@ export const useConnectionStore = create<ConnectionState>()(
         set({ daemonConnected, opencodeReady }),
 
       setPaired: (paired: boolean) => set({ paired }),
+
+      signOut: () => {
+        set({
+          apiToken: "",
+          wsConnected: false,
+          daemonConnected: false,
+          opencodeReady: false,
+        });
+      },
 
       reset: () => {
         set({ ...DEFAULT_STATE, authReady: true });
