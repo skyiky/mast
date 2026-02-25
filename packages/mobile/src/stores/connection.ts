@@ -1,21 +1,16 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  getSecureApiToken,
-  setSecureApiToken,
-  deleteSecureApiToken,
-} from "../lib/secure-token";
 
 interface ConnectionState {
   /** Orchestrator base URL (HTTP) */
   serverUrl: string;
   /** Orchestrator WebSocket URL */
   wsUrl: string;
-  /** API token for phone auth — loaded from SecureStore on startup */
+  /** Supabase access_token — used as Bearer token for all API/WSS calls */
   apiToken: string;
-  /** Whether the token has been loaded from SecureStore */
-  tokenLoaded: boolean;
+  /** Whether auth state has been resolved (Supabase session checked) */
+  authReady: boolean;
   /** Whether the phone WebSocket is connected to orchestrator */
   wsConnected: boolean;
   /** Whether the daemon is connected to orchestrator */
@@ -28,21 +23,20 @@ interface ConnectionState {
   // Actions
   setServerUrl: (url: string) => void;
   setApiToken: (token: string) => void;
+  setAuthReady: (ready: boolean) => void;
   setWsConnected: (connected: boolean) => void;
   setDaemonStatus: (daemonConnected: boolean, opencodeReady: boolean) => void;
   setPaired: (paired: boolean) => void;
+  /** Reset connection state (sign out). Does NOT clear Supabase session —
+   *  call supabase.auth.signOut() separately. */
   reset: () => void;
-  /** Load API token from SecureStore — call once on app startup */
-  loadToken: () => Promise<void>;
 }
-
-const DEFAULT_API_TOKEN = "mast-api-token-phase1";
 
 const DEFAULT_STATE = {
   serverUrl: "",
   wsUrl: "",
-  apiToken: DEFAULT_API_TOKEN,
-  tokenLoaded: false,
+  apiToken: "",
+  authReady: false,
   wsConnected: false,
   daemonConnected: false,
   opencodeReady: false,
@@ -60,11 +54,9 @@ export const useConnectionStore = create<ConnectionState>()(
         set({ serverUrl: url, wsUrl });
       },
 
-      setApiToken: (token: string) => {
-        // Persist to SecureStore (fire-and-forget)
-        setSecureApiToken(token);
-        set({ apiToken: token });
-      },
+      setApiToken: (token: string) => set({ apiToken: token }),
+
+      setAuthReady: (ready: boolean) => set({ authReady: ready }),
 
       setWsConnected: (connected: boolean) => set({ wsConnected: connected }),
 
@@ -74,25 +66,14 @@ export const useConnectionStore = create<ConnectionState>()(
       setPaired: (paired: boolean) => set({ paired }),
 
       reset: () => {
-        deleteSecureApiToken();
-        set({ ...DEFAULT_STATE, apiToken: DEFAULT_API_TOKEN, tokenLoaded: true });
-      },
-
-      loadToken: async () => {
-        const token = await getSecureApiToken();
-        if (token) {
-          set({ apiToken: token, tokenLoaded: true });
-        } else {
-          // First launch — persist the default token to SecureStore
-          await setSecureApiToken(DEFAULT_API_TOKEN);
-          set({ tokenLoaded: true });
-        }
+        set({ ...DEFAULT_STATE, authReady: true });
       },
     }),
     {
       name: "mast-connection",
       storage: createJSONStorage(() => AsyncStorage),
-      // apiToken is NO LONGER persisted in AsyncStorage — it lives in SecureStore
+      // Only persist connection config, not ephemeral auth/connection state.
+      // apiToken comes from Supabase session (managed by Supabase SDK).
       partialize: (state) => ({
         serverUrl: state.serverUrl,
         wsUrl: state.wsUrl,

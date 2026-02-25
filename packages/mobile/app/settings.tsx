@@ -12,6 +12,7 @@ import { useSettingsStore, type Verbosity } from "../src/stores/settings";
 import { useApi } from "../src/hooks/useApi";
 import { useTheme } from "../src/lib/ThemeContext";
 import { type ThemeColors, fonts } from "../src/lib/themes";
+import { supabase } from "../src/lib/supabase";
 import AnimatedPressable from "../src/components/AnimatedPressable";
 import { SectionHeader, Divider } from "../src/components/SectionHeader";
 import type { Project } from "../src/lib/api";
@@ -72,6 +73,25 @@ export default function SettingsScreen() {
           onPress: () => {
             reset();
             router.replace("/pair");
+          },
+        },
+      ],
+    );
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      "sign out",
+      "this will sign you out and clear all connection data. continue?",
+      [
+        { text: "cancel", style: "cancel" },
+        {
+          text: "sign out",
+          style: "destructive",
+          onPress: async () => {
+            await supabase.auth.signOut();
+            reset();
+            router.replace("/login");
           },
         },
       ],
@@ -252,6 +272,15 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.repairText, { color: colors.danger }]}>
             [re-pair device]
+          </Text>
+        </AnimatedPressable>
+        <Divider colors={colors} />
+        <AnimatedPressable
+          onPress={handleSignOut}
+          style={styles.repairBtn}
+        >
+          <Text style={[styles.repairText, { color: colors.danger }]}>
+            [sign out]
           </Text>
         </AnimatedPressable>
       </View>

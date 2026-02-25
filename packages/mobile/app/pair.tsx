@@ -15,7 +15,7 @@ import {
   Platform,
   StyleSheet,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, Redirect } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { useConnectionStore } from "../src/stores/connection";
@@ -34,6 +34,9 @@ export default function PairScreen() {
   const setPaired = useConnectionStore((s) => s.setPaired);
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const apiToken = useConnectionStore((s) => s.apiToken);
+
+  // Must be signed in to pair
+  if (!apiToken) return <Redirect href="/login" />;
 
   const [mode, setMode] = useState<Mode>("qr");
   const [manualUrl, setManualUrl] = useState(serverUrl || "");

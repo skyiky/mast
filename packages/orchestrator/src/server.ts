@@ -146,6 +146,7 @@ export function startServer(
       pairingManager,
       jwtSecret,
       devMode,
+      supabaseStore,
     });
 
     const requestListener = getRequestListener(app.fetch);
@@ -164,30 +165,39 @@ export function startServer(
       if (parsed.pathname === "/daemon") {
         const token = parsed.query.token as string | undefined;
 
-        // Resolve token to userId (or handle pairing)
-        const isPairing = token === "pairing";
-        let userId: string | undefined;
+        // Token resolution may require async Supabase lookup, so wrap
+        // the entire handler in an async IIFE. The Node.js 'upgrade'
+        // event doesn't await the return value.
+        (async () => {
+          // Resolve token to userId (or handle pairing)
+          const isPairing = token === "pairing";
+          let userId: string | undefined;
 
-        if (isPairing) {
-          // Pairing mode — handled separately below
-        } else if (devMode && token === HARDCODED_DEVICE_KEY) {
-          userId = DEV_USER_ID;
-        } else if (token && pairingManager.isValidKey(token)) {
-          userId = pairingManager.getUserIdForKey(token);
-        } else if (token && supabaseStore) {
-          // For persistent device keys, we'd do an async lookup here.
-          // This is handled after upgrade below with a sync check.
-          // For now, reject unknown tokens synchronously.
-          // TODO: async device key resolution from Supabase
-        }
+          if (isPairing) {
+            // Pairing mode — handled separately below
+          } else if (devMode && token === HARDCODED_DEVICE_KEY) {
+            userId = DEV_USER_ID;
+          } else if (token && pairingManager.isValidKey(token)) {
+            userId = pairingManager.getUserIdForKey(token);
+          } else if (token && supabaseStore) {
+            // Async lookup: resolve device key from Supabase DB
+            try {
+              const resolved = await supabaseStore.resolveDeviceKey(token);
+              if (resolved) {
+                userId = resolved;
+              }
+            } catch (err) {
+              console.error("[orchestrator] device key resolution error:", err);
+            }
+          }
 
-        if (!isPairing && !userId) {
-          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-          socket.destroy();
-          return;
-        }
+          if (!isPairing && !userId) {
+            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+            socket.destroy();
+            return;
+          }
 
-        wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
+          wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
           if (isPairing) {
             // Pairing mode — wait for pair_request, don't set as main daemon
             ws.on("message", (data) => {
@@ -268,6 +278,13 @@ export function startServer(
               pushNotifier.handleDaemonDisconnect(userId!);
             }
           });
+        });
+        })().catch((err) => {
+          console.error("[orchestrator] daemon upgrade error:", err);
+          if (!socket.destroyed) {
+            socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            socket.destroy();
+          }
         });
         return;
       }

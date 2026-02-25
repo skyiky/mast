@@ -30,6 +30,7 @@ export default function SessionListScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { colors } = useTheme();
+  const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const sessions = useSessionStore(useShallow((s) => s.sessions));
@@ -228,6 +229,7 @@ export default function SessionListScreen() {
 
   const keyExtractor = useCallback((item: Session) => item.id, []);
 
+  if (!apiToken) return <Redirect href="/login" />;
   if (!paired || !serverUrl) return <Redirect href="/pair" />;
 
   return (

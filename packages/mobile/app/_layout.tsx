@@ -1,6 +1,12 @@
 /**
- * Root layout — providers + stack navigator.
+ * Root layout — providers, auth gate, stack navigator.
  * Dark-only terminal aesthetic. JetBrains Mono loaded here.
+ *
+ * Auth flow:
+ * 1. Check Supabase session (persisted in AsyncStorage by Supabase SDK)
+ * 2. Push access_token into connection store's apiToken field
+ * 3. No session → login screen; session + not paired → pair screen; paired → home
+ * 4. onAuthStateChange keeps apiToken in sync across sign-in, sign-out, token refresh
  */
 
 import React, { useEffect } from "react";
@@ -21,6 +27,7 @@ import { ThemeProvider, useTheme } from "../src/lib/ThemeContext";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
 import { useWebSocket } from "../src/hooks/useWebSocket";
 import { useConnectionStore } from "../src/stores/connection";
+import { supabase, setupAuthRefreshListener } from "../src/lib/supabase";
 
 function RootNavigator() {
   const { colors } = useTheme();
@@ -74,6 +81,13 @@ function RootNavigator() {
           name="settings"
           options={{ title: "config" }}
         />
+        <Stack.Screen
+          name="login"
+          options={{
+            title: "sign in",
+            headerShown: false,
+          }}
+        />
       </Stack>
       <StatusBar style="light" />
     </>
@@ -89,15 +103,42 @@ export default function RootLayout() {
     JetBrainsMono_700Bold,
   });
 
-  const tokenLoaded = useConnectionStore((s) => s.tokenLoaded);
-  const loadToken = useConnectionStore((s) => s.loadToken);
+  const authReady = useConnectionStore((s) => s.authReady);
 
-  // Load API token from SecureStore on startup
+  // Set up Supabase auth listener — bridges auth state into connection store
   useEffect(() => {
-    loadToken();
+    const { setApiToken, setAuthReady } = useConnectionStore.getState();
+
+    // 1. Check for existing session (persisted by Supabase SDK)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) {
+        setApiToken(session.access_token);
+      }
+      setAuthReady(true);
+    });
+
+    // 2. Listen for auth state changes (sign-in, sign-out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        const { setApiToken: setToken } = useConnectionStore.getState();
+        if (session?.access_token) {
+          setToken(session.access_token);
+        } else {
+          setToken("");
+        }
+      },
+    );
+
+    // 3. Start AppState-aware auto-refresh
+    const cleanupRefresh = setupAuthRefreshListener();
+
+    return () => {
+      subscription.unsubscribe();
+      cleanupRefresh();
+    };
   }, []);
 
-  if (!fontsLoaded || !tokenLoaded) {
+  if (!fontsLoaded || !authReady) {
     // Hardcoded colors: ThemeProvider not mounted yet. Must match themes.ts bg/success.
     return (
       <View style={{ flex: 1, backgroundColor: "#0A0A0A", alignItems: "center", justifyContent: "center" }}>

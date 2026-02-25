@@ -28,6 +28,8 @@ export interface RouteDeps {
   jwtSecret?: string;
   /** Accept hardcoded Phase 1 tokens (auto-enabled when jwtSecret is absent) */
   devMode?: boolean;
+  /** Supabase store — used to persist device keys on pairing */
+  supabaseStore?: import("./supabase-store.js").SupabaseSessionStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,7 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     pairingManager,
     jwtSecret,
     devMode = !jwtSecret,
+    supabaseStore,
   } = deps;
 
   const app = new Hono<{ Variables: Variables }>();
@@ -421,6 +424,12 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
 
     const result = pairingManager.verify(body.code, userId);
     if (result.success) {
+      // Persist device key to Supabase so it survives orchestrator restarts
+      if (supabaseStore) {
+        supabaseStore.saveDeviceKey(result.deviceKey, userId).catch((err) => {
+          console.error("[orchestrator] failed to persist device key:", err);
+        });
+      }
       return c.json({ success: true, deviceKey: result.deviceKey }, 200);
     }
     return c.json({ success: false, error: result.error }, 400);
