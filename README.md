@@ -1,3 +1,5 @@
+Claude Remote Control For Opencode
+
 # Mast
 
 > Touch grass. Ship code.
