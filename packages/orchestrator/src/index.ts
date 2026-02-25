@@ -49,7 +49,6 @@ async function main() {
   let store: SessionStore;
   let supabaseStore: SupabaseSessionStore | undefined;
 
-  const supabaseUrl = process.env.SUPABASE_URL;
   // Prefer service role key (bypasses RLS), fall back to anon key
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
 
