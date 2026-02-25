@@ -52,15 +52,16 @@ export async function fetchHealth(config: ApiConfig) {
 }
 
 export async function fetchSessions(config: ApiConfig) {
-  return request<Array<{ id: string; slug?: string; title?: string; directory?: string; createdAt?: string }>>(
+  return request<Array<{ id: string; slug?: string; title?: string; directory?: string; createdAt?: string; project?: string }>>(
     config,
     "GET",
     "/sessions",
   );
 }
 
-export async function createSession(config: ApiConfig) {
-  return request<{ id: string }>(config, "POST", "/sessions");
+export async function createSession(config: ApiConfig, project?: string) {
+  const body = project ? { project } : undefined;
+  return request<{ id: string }>(config, "POST", "/sessions", body);
 }
 
 export async function fetchMessages(config: ApiConfig, sessionId: string) {
@@ -167,4 +168,29 @@ export async function revertMessage(
   return request(config, "POST", `/sessions/${sessionId}/revert`, {
     messageID: messageId,
   });
+}
+
+// --- Project management ---
+
+export interface Project {
+  name: string;
+  directory: string;
+  port: number;
+  ready: boolean;
+}
+
+export async function fetchProjects(config: ApiConfig) {
+  return request<Project[]>(config, "GET", "/projects");
+}
+
+export async function addProject(
+  config: ApiConfig,
+  name: string,
+  directory: string,
+) {
+  return request<Project>(config, "POST", "/projects", { name, directory });
+}
+
+export async function removeProject(config: ApiConfig, name: string) {
+  return request(config, "DELETE", `/projects/${encodeURIComponent(name)}`);
 }

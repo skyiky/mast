@@ -28,6 +28,8 @@ export interface Session {
   title?: string;
   /** Working directory the agent is operating in */
   directory?: string;
+  /** Project name this session belongs to (from multi-project daemon) */
+  project?: string;
   createdAt: string;
   updatedAt: string;
   /** Last user prompt text (truncated, for session list preview) */

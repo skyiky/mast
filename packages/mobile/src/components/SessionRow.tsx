@@ -23,7 +23,9 @@ interface SessionRowProps {
 function SessionRowInner({ session, onPress, onLongPress }: SessionRowProps) {
   const { colors } = useTheme();
   const timeAgo = getTimeAgo(session.updatedAt || session.createdAt);
-  const projectName = extractProjectName(session.directory);
+  // Prefer the enriched project name from multi-project daemon,
+  // fall back to extracting from directory path
+  const projectName = session.project || extractProjectName(session.directory);
 
   return (
     <AnimatedPressable

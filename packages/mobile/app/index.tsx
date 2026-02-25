@@ -23,6 +23,7 @@ import { useTheme } from "../src/lib/ThemeContext";
 import { fonts } from "../src/lib/themes";
 import ConnectionBanner from "../src/components/ConnectionBanner";
 import SessionRow from "../src/components/SessionRow";
+import ProjectFilterBar from "../src/components/ProjectFilterBar";
 import AnimatedPressable from "../src/components/AnimatedPressable";
 
 export default function SessionListScreen() {
@@ -38,6 +39,8 @@ export default function SessionListScreen() {
   const setLoadingSessions = useSessionStore((s) => s.setLoadingSessions);
   const [refreshing, setRefreshing] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [projectNames, setProjectNames] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
 
   const api = useApi();
 
@@ -62,8 +65,19 @@ export default function SessionListScreen() {
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const res = await api.sessions();
-      if (res.status === 200 && Array.isArray(res.body)) {
+      // Fetch sessions and projects in parallel
+      const [sessionsRes, projectsRes] = await Promise.all([
+        api.sessions(),
+        api.projects(),
+      ]);
+
+      // Update project names for filter bar
+      if (projectsRes.status === 200 && Array.isArray(projectsRes.body)) {
+        const names = (projectsRes.body as Array<{ name: string }>).map((p) => p.name);
+        setProjectNames(names);
+      }
+
+      if (sessionsRes.status === 200 && Array.isArray(sessionsRes.body)) {
         // Read the store AFTER the await so we capture any hasActivity
         // flags set by WSS events during the network request.
         const storeState = useSessionStore.getState();
@@ -72,7 +86,7 @@ export default function SessionListScreen() {
         );
         const deleted = new Set(storeState.deletedSessionIds);
 
-        const mapped: Session[] = res.body
+        const mapped: Session[] = sessionsRes.body
           .filter((s: any) => !deleted.has(s.id))
           .map((s: any) => {
           const prev = existing.get(s.id);
@@ -80,6 +94,7 @@ export default function SessionListScreen() {
             id: s.id,
             title: s.slug ?? s.title ?? undefined,
             directory: s.directory ?? prev?.directory,
+            project: s.project ?? prev?.project,
             createdAt: s.time?.created
               ? new Date(s.time.created).toISOString()
               : s.createdAt ?? new Date().toISOString(),
@@ -116,7 +131,7 @@ export default function SessionListScreen() {
   const handleNewSession = useCallback(async () => {
     setCreatingSession(true);
     try {
-      const res = await api.newSession();
+      const res = await api.newSession(selectedProject ?? undefined);
       if (res.status === 200 && res.body) {
         const session = res.body as { id: string };
         router.push(`/chat/${session.id}`);
@@ -129,7 +144,7 @@ export default function SessionListScreen() {
     } finally {
       setCreatingSession(false);
     }
-  }, [api, router]);
+  }, [api, router, selectedProject]);
 
   const handleOpenSession = useCallback(
     (session: Session) => {
@@ -156,16 +171,22 @@ export default function SessionListScreen() {
     [removeSession],
   );
 
+  // Filter sessions by selected project, then group by day
+  const filteredSessions = useMemo(() => {
+    if (selectedProject === null) return sessions;
+    return sessions.filter((s) => s.project === selectedProject);
+  }, [sessions, selectedProject]);
+
   // Group sessions by day for section headers
   const sections = useMemo(() => {
-    if (sessions.length === 0) return [];
+    if (filteredSessions.length === 0) return [];
 
     const groups = new Map<string, Session[]>();
     const now = new Date();
     const today = toDateKey(now);
     const yesterday = toDateKey(new Date(now.getTime() - 86400000));
 
-    for (const session of sessions) {
+    for (const session of filteredSessions) {
       const key = toDateKey(new Date(session.updatedAt || session.createdAt));
       let label: string;
       if (key === today) label = "Today";
@@ -180,7 +201,7 @@ export default function SessionListScreen() {
       title,
       data,
     }));
-  }, [sessions]);
+  }, [filteredSessions]);
 
   // Stable renderItem for SectionList
   const renderSession = useCallback(
@@ -212,6 +233,11 @@ export default function SessionListScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors.bg }]}>
       <ConnectionBanner />
+      <ProjectFilterBar
+        projects={projectNames}
+        selected={selectedProject}
+        onSelect={setSelectedProject}
+      />
 
       {loadingSessions && sessions.length === 0 ? (
         <View style={styles.centered}>
@@ -220,13 +246,15 @@ export default function SessionListScreen() {
             loading sessions...
           </Text>
         </View>
-      ) : sessions.length === 0 ? (
+      ) : filteredSessions.length === 0 ? (
         <View style={styles.empty}>
           <Text style={[styles.emptyTitle, { color: colors.bright }]}>
             no sessions
           </Text>
           <Text style={[styles.emptySubtitle, { color: colors.muted }]}>
-            start a new session to begin working with your agent.
+            {selectedProject
+              ? `no sessions in ${selectedProject}. start one below.`
+              : "start a new session to begin working with your agent."}
           </Text>
           <AnimatedPressable
             onPress={handleNewSession}

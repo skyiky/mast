@@ -14,7 +14,10 @@ export function useApi() {
 
   const health = useCallback(() => api.fetchHealth(config), [serverUrl, apiToken]);
   const sessions = useCallback(() => api.fetchSessions(config), [serverUrl, apiToken]);
-  const newSession = useCallback(() => api.createSession(config), [serverUrl, apiToken]);
+  const newSession = useCallback(
+    (project?: string) => api.createSession(config, project),
+    [serverUrl, apiToken],
+  );
   const messages = useCallback(
     (sessionId: string) => api.fetchMessages(config, sessionId),
     [serverUrl, apiToken],
@@ -59,9 +62,18 @@ export function useApi() {
     (sessionId: string, messageId: string) => api.revertMessage(config, sessionId, messageId),
     [serverUrl, apiToken],
   );
+  const projects = useCallback(() => api.fetchProjects(config), [serverUrl, apiToken]);
+  const addProject = useCallback(
+    (name: string, directory: string) => api.addProject(config, name, directory),
+    [serverUrl, apiToken],
+  );
+  const removeProject = useCallback(
+    (name: string) => api.removeProject(config, name),
+    [serverUrl, apiToken],
+  );
 
   return useMemo(
-    () => ({ health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert }),
+    () => ({ health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert, projects, addProject, removeProject }),
     [serverUrl, apiToken],
   );
 }
