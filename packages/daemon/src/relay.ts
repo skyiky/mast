@@ -13,6 +13,16 @@ import {
 import type { SseEvent } from "./sse-client.js";
 import type { ProjectManager } from "./project-manager.js";
 
+/** Error thrown when the orchestrator rejects the device key (HTTP 401). */
+export class AuthError extends Error {
+  readonly statusCode: number;
+  constructor(statusCode: number) {
+    super(`Orchestrator rejected device key (HTTP ${statusCode})`);
+    this.name = "AuthError";
+    this.statusCode = statusCode;
+  }
+}
+
 export class Relay {
   private ws: WebSocket | null = null;
   private orchestratorUrl: string;
@@ -38,6 +48,24 @@ export class Relay {
 
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
+      let rejected = false;
+
+      ws.on("upgrade", () => {
+        // Connection upgraded successfully — auth accepted
+      });
+
+      // Fires before 'error' when server responds with non-101 status
+      ws.on("unexpected-response", (_req, res) => {
+        rejected = true;
+        if (res.statusCode === 401) {
+          // Auth failure — don't reconnect with the same bad key
+          this.shouldReconnect = false;
+          reject(new AuthError(res.statusCode));
+        } else {
+          reject(new Error(`Unexpected server response: ${res.statusCode}`));
+        }
+        ws.close();
+      });
 
       ws.on("open", () => {
         console.log("Connected to orchestrator");
@@ -84,8 +112,8 @@ export class Relay {
 
       ws.on("error", (err) => {
         console.error("WebSocket error:", err.message);
-        // If we haven't connected yet, reject the promise
-        if (!this.ws) {
+        // If we haven't connected yet and unexpected-response didn't already handle it
+        if (!this.ws && !rejected) {
           reject(err);
         }
       });

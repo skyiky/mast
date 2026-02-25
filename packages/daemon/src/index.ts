@@ -19,7 +19,7 @@ import {
   type EventMessage,
   type DaemonStatus,
 } from "@mast/shared";
-import { Relay } from "./relay.js";
+import { Relay, AuthError } from "./relay.js";
 import { KeyStore } from "./key-store.js";
 import { ProjectConfig } from "./project-config.js";
 import { ProjectManager } from "./project-manager.js";
@@ -131,7 +131,28 @@ async function main() {
   // --- Connect to orchestrator ---
   relay = new Relay(ORCHESTRATOR_URL, projectManager, deviceKey);
   console.log(`[daemon] Connecting to orchestrator at ${ORCHESTRATOR_URL}...`);
-  await relay.connect();
+
+  try {
+    await relay.connect();
+  } catch (err) {
+    if (err instanceof AuthError) {
+      // Device key was rejected — delete it and re-pair
+      console.warn(
+        `[daemon] Device key rejected (${err.statusCode}) — clearing key and re-pairing`,
+      );
+      await keyStore.clear();
+
+      const newKey = await runPairingFlow(ORCHESTRATOR_URL);
+      await keyStore.save(newKey);
+      console.log(`[daemon] New device key saved to ${keyStore.file}`);
+
+      // Reconnect with the fresh key
+      relay = new Relay(ORCHESTRATOR_URL, projectManager, newKey);
+      await relay.connect();
+    } else {
+      throw err;
+    }
+  }
 
   // --- Start health monitoring for all projects ---
   relay.startHealthMonitoring();
