@@ -1,0 +1,26 @@
+{
+  "name": "@mast/cli",
+  "version": "0.0.1",
+  "description": "Zero-config CLI for Mast — npx mast",
+  "type": "module",
+  "bin": {
+    "mast": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --import tsx --test --test-force-exit test/*.test.ts"
+  },
+  "dependencies": {
+    "ws": "^8"
+  },
+  "devDependencies": {
+    "@mast/daemon": "*",
+    "@mast/shared": "*",
+    "esbuild": "^0.25",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

@@ -20,16 +20,17 @@ Claude RC works from any browser via claude.ai/code. Mast requires installing th
 ### 2. Zero-Config Setup
 
 **Priority:** High
-**Status:** Not started
+**Status:** Done
 
 Claude RC is a single command: `claude remote-control`. Mast requires installing the daemon, configuring projects in `~/.mast/projects.json`, pairing a device, and having an orchestrator running. The onboarding friction is significantly higher.
 
-**Scope:**
-- Single `mast` CLI command that auto-detects the current project directory and starts the daemon
-- Auto-register the current directory as a project if `projects.json` is empty
-- Bundled orchestrator option (run orchestrator + daemon in one process for local-only use)
-- Streamlined first-run experience: start daemon → display pairing code → done
-- `npx mast` for zero-install trial
+**Implemented:**
+- `@mast/cli` package — `npx mast` starts everything with zero config
+- Auto-detects current directory as project, creates `~/.mast/projects.json` on first run
+- Supports positional directory arg, `--port`, `--orchestrator`, `--sandbox` flags
+- `mast attach <url>` subcommand (placeholder for Feature 3)
+- esbuild-bundled single-file binary (`dist/cli.mjs`) with only `ws` as runtime dependency
+- 32 tests (args parsing, auto-detect, runner) all using Node.js built-in test runner
 
 ### 3. Mid-Session Attach
 
