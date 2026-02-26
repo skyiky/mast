@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { existsSync, readFileSync } from "node:fs";
+import { join, extname, resolve } from "node:path";
 import { HARDCODED_API_TOKEN } from "@mast/shared";
 import type { DaemonConnection } from "./daemon-connection.js";
 import type { PhoneConnectionManager } from "./phone-connections.js";
@@ -30,7 +32,27 @@ export interface RouteDeps {
   devMode?: boolean;
   /** Supabase store — used to persist device keys on pairing */
   supabaseStore?: import("./supabase-store.js").SupabaseSessionStore;
+  /** Path to built web client dist directory for static file serving */
+  webDistPath?: string;
 }
+
+// ---------------------------------------------------------------------------
+// MIME type mapping
+// ---------------------------------------------------------------------------
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
 
 // ---------------------------------------------------------------------------
 // App factory
@@ -45,9 +67,66 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     jwtSecret,
     devMode = !jwtSecret && !hasJwks(),
     supabaseStore,
+    webDistPath,
   } = deps;
 
   const app = new Hono<{ Variables: Variables }>();
+
+  // --- Static file middleware (before auth) ---
+  // Serves real files from webDistPath. Must run before auth so static assets
+  // don't require a Bearer token.
+  if (webDistPath) {
+    app.use("*", async (c, next) => {
+      // Skip known API paths — let them fall through to auth + API routes
+      const reqPath = c.req.path;
+      if (
+        reqPath === "/health" ||
+        reqPath.startsWith("/sessions") ||
+        reqPath.startsWith("/pair") ||
+        reqPath.startsWith("/push") ||
+        reqPath.startsWith("/providers") ||
+        reqPath.startsWith("/projects") ||
+        reqPath.startsWith("/project") ||
+        reqPath.startsWith("/mcp-servers") ||
+        reqPath === "/daemon" ||
+        reqPath === "/ws"
+      ) {
+        await next();
+        return;
+      }
+
+      // Serve index.html for the root path
+      if (reqPath === "/") {
+        const indexPath = join(webDistPath, "index.html");
+        if (existsSync(indexPath)) {
+          const content = readFileSync(indexPath);
+          return c.body(content, 200, {
+            "Content-Type": "text/html",
+          });
+        }
+      }
+
+      // Try to serve a real file from the dist directory
+      const filePath = resolve(join(webDistPath, reqPath));
+      // Path traversal protection: ensure resolved path stays within webDistPath
+      const resolvedBase = resolve(webDistPath);
+      if (!filePath.startsWith(resolvedBase)) {
+        await next();
+        return;
+      }
+      if (existsSync(filePath) && !filePath.endsWith("/")) {
+        const ext = extname(filePath);
+        if (ext && MIME_TYPES[ext]) {
+          const content = readFileSync(filePath);
+          return c.body(content, 200, {
+            "Content-Type": MIME_TYPES[ext],
+          });
+        }
+      }
+
+      await next();
+    });
+  }
 
   // --- Health (no auth) ---
   app.get("/health", (c) => {
@@ -63,15 +142,46 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     });
   });
 
-  // --- Auth middleware (skip /health) ---
+  // --- Auth middleware (skip /health and non-API paths) ---
   app.use("*", async (c, next) => {
-    if (c.req.path === "/health") {
+    const reqPath = c.req.path;
+
+    // Skip auth for health endpoint
+    if (reqPath === "/health") {
       await next();
       return;
     }
 
+    // Determine if this is a known API path that requires authentication
+    const isApiPath =
+      reqPath.startsWith("/sessions") ||
+      reqPath.startsWith("/pair") ||
+      reqPath.startsWith("/push") ||
+      reqPath.startsWith("/providers") ||
+      reqPath.startsWith("/projects") ||
+      reqPath.startsWith("/project") ||
+      reqPath.startsWith("/mcp-servers");
+
     const auth = c.req.header("Authorization");
     if (!auth || !auth.startsWith("Bearer ")) {
+      // When serving static files, unauthenticated GET requests should get the
+      // SPA fallback (index.html) instead of 401. This allows browser navigation
+      // to work (e.g., /sessions/abc loads the React SPA). Non-GET requests
+      // (API calls) still get 401 so errors are caught properly.
+      if (webDistPath && c.req.method === "GET") {
+        const indexPath = join(webDistPath, "index.html");
+        if (existsSync(indexPath)) {
+          const content = readFileSync(indexPath);
+          return c.body(content, 200, {
+            "Content-Type": "text/html",
+          });
+        }
+      }
+      // Non-API paths without auth and without webDistPath → let the catch-all handle it
+      if (!isApiPath) {
+        await next();
+        return;
+      }
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -444,6 +554,26 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     }
     return c.json({ success: false, error: result.error }, 400);
   });
+
+  // --- Static file SPA fallback (after all API routes) ---
+  // If no API route matched, serve index.html for paths without file extensions
+  // (client-side routing). If webDistPath is not set, return 404.
+  if (webDistPath) {
+    app.all("*", (c) => {
+      const indexPath = join(webDistPath, "index.html");
+      if (existsSync(indexPath)) {
+        const content = readFileSync(indexPath);
+        return c.body(content, 200, {
+          "Content-Type": "text/html",
+        });
+      }
+      return c.notFound();
+    });
+  } else {
+    app.all("*", (c) => {
+      return c.notFound();
+    });
+  }
 
   return app;
 }

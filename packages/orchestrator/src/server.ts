@@ -26,6 +26,8 @@ export interface ServerConfig {
   devMode?: boolean;
   /** Supabase store for device key resolution (production only) */
   supabaseStore?: SupabaseSessionStore;
+  /** Path to built web client dist directory for static file serving */
+  webDistPath?: string;
 }
 
 export interface ServerHandle {
@@ -52,6 +54,7 @@ export function startServer(
     const jwtSecret = config?.jwtSecret;
     const devMode = config?.devMode ?? (!jwtSecret && !hasJwks());
     const supabaseStore = config?.supabaseStore;
+    const webDistPath = config?.webDistPath;
 
     /** Per-user event timestamp trackers */
     const timestampTrackers = new Map<string, EventTimestampTracker>();
@@ -147,6 +150,7 @@ export function startServer(
       jwtSecret,
       devMode,
       supabaseStore,
+      webDistPath,
     });
 
     const requestListener = getRequestListener(app.fetch);
