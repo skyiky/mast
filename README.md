@@ -4,7 +4,7 @@ Claude Remote Control For Opencode
 
 > Touch grass. Ship code.
 
-Mast is a mobile interface for directing AI coding agents. A phone app connects to an orchestrator server, which relays to a daemon on your dev machine, which controls an [OpenCode](https://opencode.ai) agent process.
+Mast is a mobile interface for directing AI coding agents against real GitHub repos. A phone app connects to an orchestrator server, which relays to a daemon on your dev machine, which controls [OpenCode](https://opencode.ai) agent processes — one per project.
 
 You chat with the agent from your phone. The agent writes code on your machine. When it needs approval for file writes or shell commands, you get a push notification and approve or deny from wherever you are.
 
@@ -19,16 +19,34 @@ The workflow is async by design. You plan with the agent, put your phone away wh
 └─────────┘                  └──────────────┘                  └──────┬──────┘
                                                                       │ HTTP + SSE
                                                                 ┌─────┴──────┐
-                                                                │  OpenCode  │
-                                                                │ (localhost) │
+                                                                │ OpenCode ×N│
+                                                                │ (per project)│
                                                                 └────────────┘
 ```
 
 All connections are outbound. Neither the phone nor the dev machine expose inbound ports. Credentials stay on the dev machine.
 
-- **Phone** (`packages/mobile`) — React Native / Expo app. Chat UI, permission approvals, diff review, push notifications.
-- **Orchestrator** (`packages/orchestrator`) — Node.js server deployed to Azure Container Apps. Relays messages between phone and daemon, caches sessions in Supabase, sends push notifications.
-- **Daemon** (`packages/daemon`) — Node.js process on your dev machine. Manages the OpenCode process and relays HTTP requests and SSE events through a persistent WSS connection to the orchestrator.
+- **Phone** (`packages/mobile`) — React Native / Expo app. GitHub OAuth login, chat UI, permission approvals, diff review, push notifications, multi-project filtering.
+- **Orchestrator** (`packages/orchestrator`) — Node.js server deployed to Azure Container Apps. Authenticates users via Supabase JWTs, relays messages between phone and daemon, caches sessions in Supabase, sends push notifications.
+- **Daemon** (`packages/daemon`) — Node.js process on your dev machine. Manages one OpenCode process per project, relays HTTP requests and SSE events through a persistent WSS connection to the orchestrator.
+
+## Authentication
+
+Mast uses **Supabase Auth with GitHub OAuth**:
+
+1. User signs in with GitHub on the phone app
+2. Supabase handles the OAuth flow and issues JWTs (ES256)
+3. Phone sends the Supabase access token on every request
+4. Orchestrator verifies tokens via the Supabase JWKS public key
+5. Daemon authenticates with a device key obtained during pairing
+
+First-time setup requires a one-time pairing: the daemon displays a 6-digit code, you enter it on the phone. The device key is saved to `~/.mast/device-key.json` and reused on subsequent connections.
+
+## Multi-Project Support
+
+The daemon manages multiple OpenCode instances, one per project directory. Projects are configured in `~/.mast/projects.json` and can be added/removed at runtime from the phone's settings screen. Each project gets its own OpenCode process on a sequential port (4096, 4097, ...).
+
+The phone UI shows a project filter bar above the session list, letting you focus on one project at a time.
 
 ## Monorepo Structure
 
@@ -53,7 +71,8 @@ All packages share types through `@mast/shared` and can be deployed independentl
 - **npm** v10+ (workspace support)
 - **OpenCode** installed and configured on your dev machine
 - **Expo Go** on your phone (for development)
-- **Supabase** project (optional — falls back to in-memory store without it)
+- **Supabase** project with GitHub OAuth configured
+- **GitHub account** (for authentication)
 
 ## Quick Start
 
@@ -69,9 +88,9 @@ npm install
 npm run dev --workspace=packages/orchestrator
 ```
 
-Starts on `http://localhost:3000`. Without Supabase env vars, it uses an in-memory session store.
+Starts on `http://localhost:3000`. Without Supabase env vars, it uses an in-memory session store and accepts hardcoded dev tokens.
 
-For production with Supabase persistence:
+For production with Supabase persistence and JWT auth:
 
 ```bash
 SUPABASE_URL=https://your-project.supabase.co \
@@ -85,12 +104,12 @@ npm start --workspace=packages/orchestrator
 npm run dev --workspace=packages/daemon
 ```
 
-On first run, the daemon displays a 6-digit pairing code and QR code in the terminal. Enter this code on the mobile app to pair. The device key is saved to `~/.mast/device-key.json`.
+On first run, the daemon displays a 6-digit pairing code in the terminal. Enter this code on the mobile app to pair. The device key is saved to `~/.mast/device-key.json`.
 
 Environment variables:
 
 - `MAST_ORCHESTRATOR_URL` — orchestrator WebSocket URL (default: `ws://localhost:3000`)
-- `OPENCODE_PORT` — port for `opencode serve` (default: `4096`)
+- `OPENCODE_PORT` — base port for OpenCode instances (default: `4096`)
 - `MAST_SKIP_OPENCODE=1` — skip starting OpenCode (for testing)
 
 ### Run the mobile app
@@ -100,7 +119,7 @@ cd packages/mobile
 npx expo start
 ```
 
-Scan the QR code with Expo Go on your phone.
+Scan the QR code with Expo Go on your phone. Sign in with GitHub, enter the pairing code from the daemon, and start chatting.
 
 ### Run tests
 
@@ -108,14 +127,14 @@ Scan the QR code with Expo Go on your phone.
 npm test                                       # all packages
 npm test --workspace=packages/orchestrator     # orchestrator only
 npm test --workspace=packages/daemon           # daemon only
-npm test --workspace=packages/mobile           # mobile event handler only
+npm test --workspace=packages/mobile           # mobile only
 ```
 
 Tests use `node:test` with no external test framework or dependencies.
 
 ## How It Works
 
-The daemon subscribes to OpenCode's SSE event stream and forwards events (message creation, part updates, completions) through the WSS connection to the orchestrator, which broadcasts them to connected phones.
+The daemon subscribes to each OpenCode instance's SSE event stream and forwards events (message creation, part updates, completions) through the WSS connection to the orchestrator, which broadcasts them to connected phones.
 
 When OpenCode needs approval for a file write or shell command, the orchestrator sends a push notification. You approve or deny from the phone, and the decision is relayed back through the same chain.
 
@@ -149,6 +168,7 @@ The daemon runs on your dev machine. The mobile app runs on your phone via Expo 
 | Layer | Tech |
 |---|---|
 | Mobile | React Native, Expo, Expo Router, NativeWind (Tailwind), Zustand |
+| Auth | Supabase Auth, GitHub OAuth, ES256 JWTs |
 | Orchestrator | Node.js, Hono, ws, Supabase JS |
 | Daemon | Node.js, ws, child_process (OpenCode) |
 | Shared | TypeScript (ES2022, Node16 modules) |
@@ -156,6 +176,10 @@ The daemon runs on your dev machine. The mobile app runs on your phone via Expo 
 | Hosting | Azure Container Apps |
 | Testing | node:test (zero dependencies) |
 | Agent | OpenCode (via `opencode serve` API) |
+
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features, including gaps identified against Claude Code Remote Control.
 
 ## License
 
