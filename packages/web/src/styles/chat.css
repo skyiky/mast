@@ -447,11 +447,30 @@
 .chat-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 6px;
+}
+
+.chat-back-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.chat-back-btn:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.chat-header-spacer {
+  flex: 1;
 }
 
 /* Session controls toolbar */

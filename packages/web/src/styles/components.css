@@ -1,6 +1,9 @@
 /* Shared component styles */
 
-/* Connection banner */
+/* ------------------------------------------------------------------ */
+/* Connection banner (legacy — kept for backward compat)               */
+/* ------------------------------------------------------------------ */
+
 .connection-banner {
   display: flex;
   align-items: center;
@@ -44,4 +47,101 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------ */
+/* Connection status footer (compact sidebar footer)                   */
+/* ------------------------------------------------------------------ */
+
+.connection-status-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+.connection-status-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.connection-status-summary:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.connection-status-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.cs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cs-dot.ok {
+  background: var(--success);
+}
+.cs-dot.error {
+  background: var(--danger);
+}
+.cs-dot.warning {
+  background: var(--warning);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.connection-status-text {
+  flex: 1;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-status-chevron {
+  color: var(--dim);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* Expanded details */
+.connection-status-details {
+  padding: 0 16px 10px;
+}
+
+.cs-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+.cs-detail-label {
+  color: var(--muted);
+  flex: 1;
+}
+
+.cs-detail-value {
+  font-weight: 500;
+}
+.cs-detail-value.ok {
+  color: var(--success);
+}
+.cs-detail-value.error {
+  color: var(--danger);
+}
+.cs-detail-value.warning {
+  color: var(--warning);
 }

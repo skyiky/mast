@@ -145,6 +145,14 @@ export function ChatPage() {
     <div className="chat-page">
       {/* Header with session controls */}
       <div className="chat-header">
+        <button
+          className="chat-back-btn"
+          onClick={() => navigate("/")}
+          title="Back to home"
+        >
+          {"\u2190"}
+        </button>
+        <div className="chat-header-spacer" />
         <SessionControls
           sessionId={sessionId}
           onRevert={handleRevertRestore}
