@@ -27,30 +27,43 @@ export function useSupabaseAuth(): void {
       useConnectionStore.getState();
 
     // 1. Check for existing session (persisted by Supabase SDK in localStorage)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.access_token) {
-        setApiToken(session.access_token);
-        // In hosted mode, API lives at the same origin that served the page
-        if (!serverUrl) {
-          const origin = window.location.origin;
-          setServerUrl(origin);
+    supabase.auth
+      .getSession()
+      .then(({ data: { session }, error }) => {
+        if (error) {
+          console.error("[useSupabaseAuth] getSession error:", error.message);
         }
-      }
-      setAuthReady(true);
-    });
+        if (session?.access_token) {
+          setApiToken(session.access_token);
+          // In hosted mode, API lives at the same origin that served the page
+          if (!serverUrl) {
+            const origin = window.location.origin;
+            setServerUrl(origin);
+          }
+        }
+        setAuthReady(true);
+      })
+      .catch((err) => {
+        console.error("[useSupabaseAuth] getSession threw:", err);
+        setAuthReady(true);
+      });
 
     // 2. Listen for auth state changes (sign-in, sign-out, token refresh)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       const store = useConnectionStore.getState();
       if (session?.access_token) {
         store.setApiToken(session.access_token);
         if (!store.serverUrl) {
           store.setServerUrl(window.location.origin);
         }
-      } else {
+      } else if (event === "SIGNED_OUT") {
         store.setApiToken("");
+      }
+      // Always ensure authReady is true after any auth event
+      if (!store.authReady) {
+        store.setAuthReady(true);
       }
     });
 

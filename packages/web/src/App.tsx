@@ -14,6 +14,7 @@ import { useSupabaseAuth } from "./hooks/useSupabaseAuth.js";
 export function App() {
   const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
+  const authReady = useConnectionStore((s) => s.authReady);
   const hydrated = useHydration();
 
   // Bridge Supabase auth state into connection store (hosted mode).
@@ -26,8 +27,10 @@ export function App() {
   // Connect WebSocket when authenticated + paired
   useWebSocket();
 
-  // Wait for persist rehydration + auto-connect before deciding which page to show.
-  if (!hydrated) return null;
+  // Wait for persist rehydration + auth resolution before deciding which page.
+  // Without the authReady check, LoginPage would flash briefly while Supabase
+  // processes the OAuth redirect tokens from the URL hash.
+  if (!hydrated || !authReady) return null;
 
   // Auth guard: no token → login, no pairing → pair
   if (!apiToken) return <LoginPage />;

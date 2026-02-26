@@ -20,5 +20,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+    // Use implicit grant flow — tokens arrive directly in the URL hash
+    // fragment (#access_token=...) rather than requiring a PKCE code exchange.
+    // PKCE (the v2 default) requires an extra server round-trip that can fail
+    // silently in hosted environments.
+    flowType: "implicit",
   },
 });
