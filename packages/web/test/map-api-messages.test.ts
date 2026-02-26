@@ -85,7 +85,33 @@ describe("mapApiMessages", () => {
     assert.equal(result[0].streaming, false);
   });
 
-  it("handles messages with no parts", () => {
+  it("synthesizes text part from top-level content when parts missing (user messages)", () => {
+    const result = mapApiMessages([
+      { id: "m1", role: "user", content: "What is 2+2?" },
+    ]);
+    assert.equal(result[0].role, "user");
+    assert.equal(result[0].parts.length, 1);
+    assert.equal(result[0].parts[0].type, "text");
+    assert.equal(result[0].parts[0].content, "What is 2+2?");
+  });
+
+  it("synthesizes text part from top-level content when parts is empty array", () => {
+    const result = mapApiMessages([
+      { id: "m1", role: "user", content: "Hello", parts: [] },
+    ]);
+    assert.equal(result[0].parts.length, 1);
+    assert.equal(result[0].parts[0].content, "Hello");
+  });
+
+  it("prefers parts over top-level content when both present", () => {
+    const result = mapApiMessages([
+      { id: "m1", role: "user", content: "top-level", parts: [{ type: "text", text: "from parts" }] },
+    ]);
+    assert.equal(result[0].parts.length, 1);
+    assert.equal(result[0].parts[0].content, "from parts");
+  });
+
+  it("handles messages with no parts and no content", () => {
     const result = mapApiMessages([{ id: "m1", role: "user" }]);
     assert.deepStrictEqual(result[0].parts, []);
   });

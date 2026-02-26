@@ -70,6 +70,8 @@ export interface RawApiPart {
 export interface RawApiMessage {
   id: string;
   role: string;
+  /** Top-level content field — OpenCode puts user message text here instead of in parts. */
+  content?: string;
   parts?: RawApiPart[];
   streaming?: boolean;
   createdAt?: string;
@@ -78,13 +80,21 @@ export interface RawApiMessage {
 /** Map raw API messages to ChatMessage[]. Handles field-name differences
  *  between OpenCode wire format (`text`, `tool`, `state`) and our internal types. */
 export function mapApiMessages(raw: RawApiMessage[]): ChatMessage[] {
-  return raw.map((m) => ({
-    id: m.id,
-    role: (m.role as "user" | "assistant") || "assistant",
-    parts: (m.parts ?? []).map(mapApiPart),
-    streaming: m.streaming ?? false,
-    createdAt: m.createdAt ?? new Date().toISOString(),
-  }));
+  return raw.map((m) => {
+    const mappedParts = (m.parts ?? []).map(mapApiPart);
+    // OpenCode puts user message text in a top-level `content` field, not in parts.
+    // Synthesize a text part so the message bubble has something to render.
+    if (mappedParts.length === 0 && m.content) {
+      mappedParts.push({ type: "text", content: m.content });
+    }
+    return {
+      id: m.id,
+      role: (m.role as "user" | "assistant") || "assistant",
+      parts: mappedParts,
+      streaming: m.streaming ?? false,
+      createdAt: m.createdAt ?? new Date().toISOString(),
+    };
+  });
 }
 
 function mapApiPart(p: RawApiPart): MessagePart {
