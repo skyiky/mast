@@ -21,7 +21,10 @@ export interface ManagedProject {
   name: string;
   directory: string;
   port: number;
-  opencode: OpenCodeProcess;
+  baseUrl: string;
+  /** true = we own the OpenCode process; false = external, don't kill on stop */
+  managed: boolean;
+  opencode: OpenCodeProcess | null;
   sse: SseSubscriber | null;
   health: HealthMonitor | null;
   ready: boolean;
@@ -145,6 +148,8 @@ export class ProjectManager {
       name: project.name,
       directory: project.directory,
       port,
+      baseUrl: `http://localhost:${port}`,
+      managed: true,
       opencode,
       sse: null,
       health: null,
@@ -180,7 +185,7 @@ export class ProjectManager {
 
     this.stopSse(projectName);
 
-    managed.sse = new SseSubscriber(managed.opencode.baseUrl);
+    managed.sse = new SseSubscriber(managed.baseUrl);
     managed.sse
       .subscribe((event: SseEvent) => {
         this.config.onEvent?.(projectName, event);
@@ -229,7 +234,7 @@ export class ProjectManager {
     this.stopHealth(projectName);
 
     managed.health = new HealthMonitor({
-      opencodeBaseUrl: managed.opencode.baseUrl,
+      opencodeBaseUrl: managed.baseUrl,
       checkIntervalMs: this.config.healthCheckIntervalMs,
       failureThreshold: this.config.healthFailureThreshold,
       onStateChange: (state, ready) => {
@@ -239,8 +244,8 @@ export class ProjectManager {
       onRecoveryNeeded: async () => {
         if (this.config.onRecoveryNeeded) {
           await this.config.onRecoveryNeeded(projectName);
-        } else {
-          // Default: restart the OpenCode process
+        } else if (managed.managed && managed.opencode) {
+          // Default: restart the OpenCode process (only for managed projects)
           console.log(
             `[project-manager] Auto-restarting OpenCode for "${projectName}"`,
           );
@@ -298,7 +303,7 @@ export class ProjectManager {
     this.stopSse(projectName);
     this.stopHealth(projectName);
 
-    if (managed.opencode.isRunning()) {
+    if (managed.managed && managed.opencode?.isRunning()) {
       await managed.opencode.stop();
     }
 
@@ -347,6 +352,61 @@ export class ProjectManager {
   }
 
   /**
+   * Attach an external (unmanaged) OpenCode instance by URL.
+   * The daemon will subscribe to SSE and route requests, but will NOT
+   * own the process — no restart on crash, no SIGTERM on shutdown.
+   *
+   * Used by `mast attach <url>` for mid-session attach.
+   */
+  attachProject(name: string, url: string): ManagedProject {
+    if (this.projects.has(name)) {
+      throw new Error(`Project "${name}" already exists`);
+    }
+
+    // Parse port from URL
+    const parsed = new URL(url);
+    const port = parsed.port ? Number(parsed.port) : (parsed.protocol === "https:" ? 443 : 80);
+    const baseUrl = url.replace(/\/+$/, ""); // strip trailing slashes
+
+    const managed: ManagedProject = {
+      name,
+      directory: "",             // unknown for external instances
+      port,
+      baseUrl,
+      managed: false,
+      opencode: null,
+      sse: null,
+      health: null,
+      ready: true,               // assume ready since it's already running
+    };
+
+    this.projects.set(name, managed);
+    console.log(`[project-manager] Attached external "${name}" at ${baseUrl}`);
+    return managed;
+  }
+
+  /**
+   * Detach an unmanaged project. Stops SSE/health but does NOT kill the process.
+   */
+  async detachProject(projectName: string): Promise<void> {
+    const managed = this.projects.get(projectName);
+    if (!managed) return;
+
+    this.stopSse(projectName);
+    this.stopHealth(projectName);
+
+    // Remove session mappings
+    for (const [sessionId, name] of this.sessionToProject.entries()) {
+      if (name === projectName) {
+        this.sessionToProject.delete(sessionId);
+      }
+    }
+
+    this.projects.delete(projectName);
+    console.log(`[project-manager] Detached "${projectName}"`);
+  }
+
+  /**
    * List all sessions across all projects.
    * Fetches GET /session from each running OpenCode instance,
    * enriches each session with the project name, and updates
@@ -360,7 +420,7 @@ export class ProjectManager {
         if (!managed.ready) return [];
 
         try {
-          const res = await fetch(`${managed.opencode.baseUrl}/session`);
+          const res = await fetch(`${managed.baseUrl}/session`);
           if (!res.ok) {
             console.error(
               `[project-manager] Failed to list sessions for "${name}": ${res.status}`,
@@ -419,7 +479,7 @@ export class ProjectManager {
         if (!managed.ready) return null;
 
         try {
-          const res = await fetch(`${managed.opencode.baseUrl}/mcp`);
+          const res = await fetch(`${managed.baseUrl}/mcp`);
           if (!res.ok) {
             console.error(
               `[project-manager] Failed to list MCP servers for "${name}": ${res.status}`,
@@ -455,7 +515,7 @@ export class ProjectManager {
     const managed = this.projects.get(projectName);
     if (!managed) return null;
 
-    return managed.opencode.baseUrl;
+    return managed.baseUrl;
   }
 
   /**
@@ -470,7 +530,7 @@ export class ProjectManager {
    */
   getBaseUrlForProject(projectName: string): string | null {
     const managed = this.projects.get(projectName);
-    return managed?.opencode.baseUrl ?? null;
+    return managed?.baseUrl ?? null;
   }
 
   /**

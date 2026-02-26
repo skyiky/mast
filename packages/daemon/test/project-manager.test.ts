@@ -547,3 +547,132 @@ describe("ProjectManager allReady", () => {
     assert.equal(manager.allReady, true);
   });
 });
+
+// ===========================================================================
+// attachProject (unmanaged mode)
+// ===========================================================================
+
+describe("ProjectManager attachProject", () => {
+  it("attaches an external OpenCode instance by URL", async () => {
+    const port = nextPort();
+    await startMockOpenCode(port, [
+      { id: "ses_1", directory: "/ext", title: "attached session" },
+    ]);
+
+    manager = createManager();
+    const attached = manager.attachProject("external", `http://localhost:${port}`);
+
+    assert.equal(attached.name, "external");
+    assert.equal(attached.ready, true);
+    assert.equal(attached.managed, false);
+    assert.equal(attached.port, port);
+  });
+
+  it("appears in listProjects()", async () => {
+    const port = nextPort();
+    await startMockOpenCode(port);
+
+    manager = createManager();
+    manager.attachProject("ext", `http://localhost:${port}`);
+
+    const projects = manager.listProjects();
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].name, "ext");
+    assert.equal(projects[0].ready, true);
+  });
+
+  it("sessions from attached project are listed and routed", async () => {
+    const port = nextPort();
+    await startMockOpenCode(port, [
+      { id: "ses_ext_1", directory: "/ext", title: "ext session" },
+    ]);
+
+    manager = createManager();
+    manager.attachProject("ext", `http://localhost:${port}`);
+
+    const sessions = await manager.listAllSessions();
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, "ses_ext_1");
+    assert.equal(sessions[0].project, "ext");
+
+    // Routing works
+    const url = manager.getBaseUrlForSession("ses_ext_1");
+    assert.equal(url, `http://localhost:${port}`);
+  });
+
+  it("rejects duplicate project names", () => {
+    const port = nextPort();
+    manager = createManager();
+    manager.attachProject("dup", `http://localhost:${port}`);
+
+    assert.throws(
+      () => manager!.attachProject("dup", `http://localhost:${port + 1}`),
+      /already exists/,
+    );
+  });
+
+  it("detachProject() removes the attached project", async () => {
+    const port = nextPort();
+    await startMockOpenCode(port);
+
+    manager = createManager();
+    manager.attachProject("ext", `http://localhost:${port}`);
+    assert.equal(manager.size, 1);
+
+    await manager.detachProject("ext");
+    assert.equal(manager.size, 0);
+    assert.equal(manager.listProjects().length, 0);
+  });
+
+  it("detachProject() cleans up session mappings", async () => {
+    const port = nextPort();
+    await startMockOpenCode(port, [
+      { id: "ses_d1", directory: "/d" },
+    ]);
+
+    manager = createManager();
+    manager.attachProject("ext", `http://localhost:${port}`);
+    await manager.listAllSessions(); // populates routing map
+
+    assert.ok(manager.getBaseUrlForSession("ses_d1"));
+
+    await manager.detachProject("ext");
+    assert.equal(manager.getBaseUrlForSession("ses_d1"), null);
+  });
+
+  it("stopProject() does NOT kill process for unmanaged projects", async () => {
+    const port = nextPort();
+    const srv = await startMockOpenCode(port);
+
+    manager = createManager();
+    manager.attachProject("ext", `http://localhost:${port}`);
+    await manager.stopProject("ext");
+
+    // The mock server should still be running (we didn't kill it)
+    const res = await fetch(`http://localhost:${port}/global/health`);
+    assert.equal(res.ok, true);
+  });
+
+  it("can mix managed and attached projects", async () => {
+    const managedPort = nextPort();
+    const attachedPort = nextPort();
+    await startMockOpenCode(managedPort, [
+      { id: "ses_m1", directory: "/m" },
+    ]);
+    await startMockOpenCode(attachedPort, [
+      { id: "ses_a1", directory: "/a" },
+    ]);
+
+    manager = createManager({}, managedPort);
+    await manager.startProject({ name: "managed", directory: "/m" });
+    manager.attachProject("attached", `http://localhost:${attachedPort}`);
+
+    assert.equal(manager.size, 2);
+
+    const sessions = await manager.listAllSessions();
+    assert.equal(sessions.length, 2);
+
+    const names = sessions.map((s) => s.project).sort();
+    assert.deepEqual(names, ["attached", "managed"]);
+  });
+});

@@ -8,6 +8,12 @@
 import type { CliConfig } from "./args.js";
 import type { DetectedProject } from "./auto-detect.js";
 
+/** A running OpenCode instance found by discovery or explicit URL. */
+export interface DiscoveredInstance {
+  url: string;
+  port: number;
+}
+
 /**
  * Deps interface for testability — inject fakes in tests,
  * real implementations in production.
@@ -30,6 +36,15 @@ export interface CliDeps {
     port: number;
     webDistPath?: string;
   }) => Promise<{ port: number; shutdown: () => Promise<void> }>;
+  /** Discover running OpenCode instances by port-scanning */
+  discoverOpenCode: () => Promise<DiscoveredInstance[]>;
+  /** Attach to an external OpenCode instance — starts daemon in attach mode.
+   *  Returns a shutdown function. */
+  attachDaemon: (opts: {
+    url: string;
+    orchestratorUrl: string;
+    embedded: boolean;
+  }) => Promise<{ shutdown: () => Promise<void> }>;
   /** Get the config directory (default ~/.mast) */
   configDir: string;
   /** Package version for --version output */
@@ -41,6 +56,8 @@ export interface CliResult {
   action: "started" | "help" | "version" | "attach";
   /** Project that was started (if action is "started") */
   project?: DetectedProject;
+  /** URL of the attached OpenCode instance (if action is "attach") */
+  attachUrl?: string;
   /** Shutdown function (if daemon was started) */
   shutdown?: () => Promise<void>;
 }
@@ -77,10 +94,68 @@ export async function startCli(
     return { action: "version" };
   }
 
-  // --- Attach (placeholder for Feature 3) ---
+  // --- Attach (Feature 3: Mid-Session Attach) ---
   if (config.command === "attach") {
-    deps.log(`Attaching to ${config.attachUrl}...`);
-    return { action: "attach" };
+    let targetUrl = config.attachUrl;
+
+    // If no URL provided, discover running instances
+    if (!targetUrl) {
+      deps.log("[mast] Scanning for running OpenCode instances...");
+      const instances = await deps.discoverOpenCode();
+
+      if (instances.length === 0) {
+        throw new Error(
+          "No running OpenCode instances found. Start OpenCode first, or provide a URL: mast attach http://localhost:4096",
+        );
+      }
+
+      if (instances.length === 1) {
+        targetUrl = instances[0].url;
+        deps.log(`[mast] Found OpenCode at ${targetUrl}`);
+      } else {
+        // Multiple instances — list them and ask user to specify
+        deps.log(`[mast] Found ${instances.length} running OpenCode instances:`);
+        for (const inst of instances) {
+          deps.log(`  - ${inst.url}`);
+        }
+        throw new Error(
+          "Multiple OpenCode instances found. Specify which to attach to: mast attach <url>",
+        );
+      }
+    }
+
+    // Start embedded orchestrator if needed (same logic as "start" command)
+    let orchestratorUrl = config.orchestratorUrl;
+    let orchestratorShutdown: (() => Promise<void>) | undefined;
+    const embedded = !orchestratorUrl;
+
+    if (!orchestratorUrl) {
+      deps.log("[mast] Starting orchestrator...");
+      const orchestrator = await deps.startOrchestrator({ port: 3000 });
+      orchestratorUrl = `ws://localhost:${orchestrator.port}`;
+      orchestratorShutdown = orchestrator.shutdown;
+      deps.log(`[mast] Web UI: http://localhost:${orchestrator.port}`);
+    }
+
+    // Attach the daemon to the external OpenCode instance
+    deps.log(`[mast] Attaching to ${targetUrl}...`);
+    const daemon = await deps.attachDaemon({
+      url: targetUrl,
+      orchestratorUrl,
+      embedded,
+    });
+
+    deps.log(`[mast] Attached to ${targetUrl}`);
+    deps.log(`[mast] Orchestrator: ${orchestratorUrl}`);
+
+    return {
+      action: "attach",
+      attachUrl: targetUrl,
+      shutdown: async () => {
+        await daemon.shutdown();
+        if (orchestratorShutdown) await orchestratorShutdown();
+      },
+    };
   }
 
   // --- Start (main flow) ---

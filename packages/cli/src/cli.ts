@@ -20,6 +20,7 @@ import { ProjectManager } from "@mast/daemon/project-manager";
 import { Relay, AuthError } from "@mast/daemon/relay";
 import { KeyStore } from "@mast/daemon/key-store";
 import { runPairingFlow } from "@mast/daemon/pairing-flow";
+import { discoverOpenCode } from "@mast/daemon/discover";
 import type { DaemonStatus, EventMessage } from "@mast/shared";
 import type { DetectedProject } from "./auto-detect.js";
 
@@ -73,10 +74,16 @@ async function main() {
     startDaemon: async (opts) => {
       return createDaemon(opts);
     },
+    discoverOpenCode: async () => {
+      return discoverOpenCode();
+    },
+    attachDaemon: async (opts) => {
+      return createAttachDaemon(opts);
+    },
   });
 
-  // If the daemon started, keep the process alive and wire shutdown signals
-  if (result.action === "started" && result.shutdown) {
+  // If the daemon started (or attached), keep the process alive and wire shutdown signals
+  if ((result.action === "started" || result.action === "attach") && result.shutdown) {
     const shutdown = async () => {
       console.log("\n[mast] Shutting down...");
       await result.shutdown!();
@@ -213,6 +220,137 @@ async function createDaemon(opts: {
       if (relay) {
         await relay.disconnect();
       }
+      await projectManager.stopAll();
+    },
+  };
+}
+
+/**
+ * Create and start the daemon stack in attach mode:
+ * ProjectManager.attachProject() → KeyStore → Relay
+ *
+ * Unlike createDaemon(), this does NOT spawn an OpenCode process.
+ * It attaches to an already-running external instance.
+ */
+async function createAttachDaemon(opts: {
+  url: string;
+  orchestratorUrl: string;
+  embedded: boolean;
+}): Promise<{ shutdown: () => Promise<void> }> {
+  const { url, orchestratorUrl, embedded } = opts;
+
+  // Derive a project name from the URL (e.g., "opencode-4096")
+  const parsed = new URL(url);
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  const projectName = `opencode-${port}`;
+
+  const projectConfig = new ProjectConfig(CONFIG_DIR);
+
+  let relay: Relay | null = null;
+
+  const projectManager = new ProjectManager(projectConfig, {
+    skipOpenCode: true,
+    onEvent: (_projectName, event) => {
+      if (!relay) return;
+      const msg: EventMessage = {
+        type: "event",
+        event: { type: event.type, data: event.data },
+        timestamp: new Date().toISOString(),
+      };
+      relay.send(msg);
+    },
+    onHealthStateChange: (_projectName, _state, _ready) => {
+      if (!relay) return;
+      const status: DaemonStatus = {
+        type: "status",
+        opencodeReady: projectManager.allReady,
+      };
+      relay.send(status);
+    },
+  });
+
+  // Attach (don't spawn) to the external OpenCode instance
+  console.log(`[mast] Attaching to external OpenCode at ${url}...`);
+  projectManager.attachProject(projectName, url);
+  console.log(`[mast] Project "${projectName}" attached`);
+
+  // In embedded mode, skip KeyStore — the in-process orchestrator uses HARDCODED_DEVICE_KEY.
+  // In external mode, load the paired device key or run pairing flow.
+  let deviceKey: string | undefined;
+  if (embedded) {
+    console.log("[mast] Embedded mode — using default device key");
+  } else {
+    const keyStore = new KeyStore();
+    deviceKey = await keyStore.load();
+    if (!deviceKey) {
+      console.log("[mast] No device key found — starting pairing flow");
+      deviceKey = await runPairingFlow(orchestratorUrl, {
+        onDisplayCode: (code, _qrPayload) => {
+          console.log("");
+          console.log("=========================================");
+          console.log(`  PAIRING CODE:  ${code}`);
+          console.log("  Enter this code in the web UI to pair.");
+          console.log("=========================================");
+          console.log("");
+        },
+      });
+      await keyStore.save(deviceKey);
+      console.log("[mast] Device key saved — paired successfully");
+    }
+  }
+
+  // Connect relay to orchestrator
+  relay = new Relay(orchestratorUrl, projectManager, deviceKey);
+
+  try {
+    await relay.connect();
+    relay.startHealthMonitoring();
+    console.log(`[mast] Connected to orchestrator`);
+
+    // Backfill all existing sessions so the orchestrator has full history
+    console.log(`[mast] Backfilling sessions...`);
+    await relay.backfillSessions();
+    console.log(`[mast] Session backfill complete`);
+  } catch (err) {
+    if (!embedded && err instanceof AuthError) {
+      console.warn(`[mast] Device key rejected — clearing and re-pairing`);
+      const keyStore = new KeyStore();
+      await keyStore.clear();
+
+      const newKey = await runPairingFlow(orchestratorUrl, {
+        onDisplayCode: (code, _qrPayload) => {
+          console.log("");
+          console.log("=========================================");
+          console.log(`  PAIRING CODE:  ${code}`);
+          console.log("  Enter this code in the web UI to pair.");
+          console.log("=========================================");
+          console.log("");
+        },
+      });
+      await keyStore.save(newKey);
+      console.log("[mast] Device key saved — paired successfully");
+
+      relay = new Relay(orchestratorUrl, projectManager, newKey);
+      await relay.connect();
+      relay.startHealthMonitoring();
+      console.log(`[mast] Connected to orchestrator`);
+
+      // Backfill after re-pairing too
+      console.log(`[mast] Backfilling sessions...`);
+      await relay.backfillSessions();
+      console.log(`[mast] Session backfill complete`);
+    } else {
+      console.warn(`[mast] Could not connect to orchestrator: ${(err as Error).message}`);
+      console.warn(`[mast] Running in standalone mode`);
+    }
+  }
+
+  return {
+    shutdown: async () => {
+      if (relay) {
+        await relay.disconnect();
+      }
+      // detachProject doesn't kill the process, just cleans up SSE/health
       await projectManager.stopAll();
     },
   };

@@ -79,11 +79,10 @@ describe("parseCliArgs", () => {
     assert.equal(config.attachUrl, "http://localhost:4096");
   });
 
-  it("attach subcommand without URL throws", () => {
-    assert.throws(
-      () => parseCliArgs(["attach"]),
-      { message: /url required/i }
-    );
+  it("attach subcommand without URL uses discovery mode", () => {
+    const config = parseCliArgs(["attach"]);
+    assert.equal(config.command, "attach");
+    assert.equal(config.attachUrl, undefined);
   });
 
   it("--help sets command to help", () => {

@@ -24,10 +24,7 @@ export function parseCliArgs(argv: string[]): CliConfig {
   // Check for "attach" subcommand first (before parseArgs, since parseArgs
   // doesn't natively support subcommands)
   if (argv[0] === "attach") {
-    const url = argv[1];
-    if (!url) {
-      throw new Error("URL required for attach command");
-    }
+    const url = argv[1]; // optional — if omitted, will auto-discover
     return {
       command: "attach",
       directory: process.cwd(),

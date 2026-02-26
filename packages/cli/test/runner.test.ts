@@ -39,6 +39,10 @@ function makeFakeDeps(overrides?: Partial<CliDeps>): CliDeps & { logs: string[];
       port: opts.port ?? 3000,
       shutdown: async () => {},
     }),
+    discoverOpenCode: async () => [],
+    attachDaemon: async (_opts) => ({
+      shutdown: async () => {},
+    }),
     configDir: "/tmp/test-mast",
     version: "0.0.1-test",
     ...overrides,
@@ -327,5 +331,235 @@ describe("embedded orchestrator", () => {
 
     const output = deps.logs.join("\n");
     assert.ok(output.includes("http://localhost:3000"), `Expected web UI URL in output, got: ${output}`);
+  });
+});
+
+// =============================================================================
+// Attach command
+// =============================================================================
+
+describe("attach command", () => {
+  it("attaches to explicit URL and returns action=attach", async () => {
+    let capturedOpts: any = null;
+    const deps = makeFakeDeps({
+      attachDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+    });
+
+    const result = await startCli(config, deps);
+
+    assert.equal(result.action, "attach");
+    assert.equal(result.attachUrl, "http://localhost:4096");
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.url, "http://localhost:4096");
+  });
+
+  it("discovers single instance when no URL provided", async () => {
+    let capturedOpts: any = null;
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => [{ url: "http://localhost:4096", port: 4096 }],
+      attachDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({ command: "attach" }); // no attachUrl
+
+    const result = await startCli(config, deps);
+
+    assert.equal(result.action, "attach");
+    assert.equal(result.attachUrl, "http://localhost:4096");
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.url, "http://localhost:4096");
+  });
+
+  it("throws when no instances found and no URL provided", async () => {
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => [],
+    });
+    const config = makeConfig({ command: "attach" });
+
+    await assert.rejects(
+      () => startCli(config, deps),
+      { message: /No running OpenCode instances found/ },
+    );
+  });
+
+  it("throws when multiple instances found and no URL provided", async () => {
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => [
+        { url: "http://localhost:4096", port: 4096 },
+        { url: "http://localhost:4097", port: 4097 },
+      ],
+    });
+    const config = makeConfig({ command: "attach" });
+
+    await assert.rejects(
+      () => startCli(config, deps),
+      { message: /Multiple OpenCode instances found/ },
+    );
+  });
+
+  it("lists discovered instances before throwing on multiple", async () => {
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => [
+        { url: "http://localhost:4096", port: 4096 },
+        { url: "http://localhost:4097", port: 4097 },
+      ],
+    });
+    const config = makeConfig({ command: "attach" });
+
+    try {
+      await startCli(config, deps);
+    } catch {
+      // expected
+    }
+
+    const output = deps.logs.join("\n");
+    assert.ok(output.includes("http://localhost:4096"), "Should list first instance");
+    assert.ok(output.includes("http://localhost:4097"), "Should list second instance");
+  });
+
+  it("starts embedded orchestrator for attach when no orchestratorUrl", async () => {
+    let orchestratorStarted = false;
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => [{ url: "http://localhost:4096", port: 4096 }],
+      startOrchestrator: async (opts) => {
+        orchestratorStarted = true;
+        return { port: opts.port, shutdown: async () => {} };
+      },
+      attachDaemon: async () => ({ shutdown: async () => {} }),
+    });
+    const config = makeConfig({ command: "attach", orchestratorUrl: "" });
+
+    await startCli(config, deps);
+
+    assert.equal(orchestratorStarted, true);
+  });
+
+  it("passes embedded=true to attachDaemon when orchestrator is embedded", async () => {
+    let capturedOpts: any = null;
+    const deps = makeFakeDeps({
+      attachDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+      orchestratorUrl: "",
+    });
+
+    await startCli(config, deps);
+
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.embedded, true);
+  });
+
+  it("passes embedded=false to attachDaemon when using external orchestrator", async () => {
+    let capturedOpts: any = null;
+    const deps = makeFakeDeps({
+      attachDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+      orchestratorUrl: "ws://remote:3000",
+    });
+
+    await startCli(config, deps);
+
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.embedded, false);
+    assert.equal(capturedOpts.orchestratorUrl, "ws://remote:3000");
+  });
+
+  it("skips discovery when explicit URL is provided", async () => {
+    let discoverCalled = false;
+    const deps = makeFakeDeps({
+      discoverOpenCode: async () => {
+        discoverCalled = true;
+        return [];
+      },
+      attachDaemon: async () => ({ shutdown: async () => {} }),
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+    });
+
+    await startCli(config, deps);
+
+    assert.equal(discoverCalled, false, "Should not call discoverOpenCode when URL is provided");
+  });
+
+  it("returned shutdown tears down both daemon and orchestrator", async () => {
+    let daemonStopped = false;
+    let orchestratorStopped = false;
+    const deps = makeFakeDeps({
+      attachDaemon: async () => ({
+        shutdown: async () => { daemonStopped = true; },
+      }),
+      startOrchestrator: async () => ({
+        port: 3000,
+        shutdown: async () => { orchestratorStopped = true; },
+      }),
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+      orchestratorUrl: "",
+    });
+
+    const result = await startCli(config, deps);
+    assert.ok(result.shutdown);
+    await result.shutdown();
+
+    assert.equal(daemonStopped, true);
+    assert.equal(orchestratorStopped, true);
+  });
+
+  it("does not start normal daemon for attach command", async () => {
+    const deps = makeFakeDeps({
+      attachDaemon: async () => ({ shutdown: async () => {} }),
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+    });
+
+    await startCli(config, deps);
+
+    assert.equal(deps.daemonStarted, false, "Should not start regular daemon for attach");
+  });
+
+  it("logs web UI URL when attaching with embedded orchestrator", async () => {
+    const deps = makeFakeDeps({
+      startOrchestrator: async () => ({
+        port: 3000,
+        shutdown: async () => {},
+      }),
+      attachDaemon: async () => ({ shutdown: async () => {} }),
+    });
+    const config = makeConfig({
+      command: "attach",
+      attachUrl: "http://localhost:4096",
+      orchestratorUrl: "",
+    });
+
+    await startCli(config, deps);
+
+    const output = deps.logs.join("\n");
+    assert.ok(output.includes("http://localhost:3000"), `Expected web UI URL, got: ${output}`);
   });
 });

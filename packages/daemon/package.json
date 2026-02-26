@@ -8,12 +8,13 @@
     "./project-manager": "./src/project-manager.ts",
     "./relay": "./src/relay.ts",
     "./key-store": "./src/key-store.ts",
-    "./pairing-flow": "./src/pairing-flow.ts"
+    "./pairing-flow": "./src/pairing-flow.ts",
+    "./discover": "./src/discover.ts"
   },
   "scripts": {
     "dev": "tsx --watch src/index.ts",
     "start": "tsx src/index.ts",
-    "test": "node --import tsx --test --test-force-exit test/key-store.test.ts test/project-config.test.ts test/project-manager.test.ts test/pairing-flow.test.ts && node --import tsx --test --test-force-exit test/relay.test.ts && node --import tsx --test --test-force-exit test/process.test.ts"
+    "test": "node --import tsx --test --test-force-exit test/key-store.test.ts test/project-config.test.ts test/project-manager.test.ts test/pairing-flow.test.ts test/discover.test.ts && node --import tsx --test --test-force-exit test/relay.test.ts && node --import tsx --test --test-force-exit test/process.test.ts"
   },
   "dependencies": {
     "@mast/shared": "*",

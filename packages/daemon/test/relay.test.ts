@@ -681,3 +681,180 @@ describe("Relay: sync", () => {
     assert.ok(s3!.messages.length > 0);
   });
 });
+
+describe("Relay: backfillSessions", () => {
+  it("fetches all sessions and messages and sends sync_response", async () => {
+    const { daemonWs, relay } = await setupRelayEnv();
+
+    // Listen for the sync_response that backfillSessions() will send
+    const syncResponsePromise = new Promise<{
+      type: string;
+      sessions: Array<{ id: string; messages: Array<{ id: string; role: string; parts: unknown[] }> }>;
+    }>((resolve) => {
+      const handler = (data: Buffer) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "sync_response") {
+          daemonWs.off("message", handler);
+          resolve(msg);
+        }
+      };
+      daemonWs.on("message", handler);
+    });
+
+    // Call backfillSessions — should fetch ALL sessions (s1, s2, s3)
+    await relay.backfillSessions();
+
+    const syncResponse = await syncResponsePromise;
+    assert.equal(syncResponse.type, "sync_response");
+    // All 3 sessions across both projects should be included
+    assert.equal(syncResponse.sessions.length, 3, "Should have 3 sessions (s1, s2, s3)");
+
+    // Verify each session has messages
+    for (const session of syncResponse.sessions) {
+      assert.ok(session.messages.length > 0, `Session ${session.id} should have messages`);
+      assert.ok(session.messages[0].id, "Message should have an id");
+      assert.ok(session.messages[0].role, "Message should have a role");
+      assert.ok(Array.isArray(session.messages[0].parts), "Message should have parts array");
+    }
+  });
+
+  it("sends empty sync_response when no projects are ready", async () => {
+    const orchPort = nextPort();
+
+    const orch = createMockOrchestrator(orchPort);
+    cleanups.push(
+      () => new Promise<void>((r) => orch.server.close(() => r())),
+    );
+
+    const configDir = join(tempDir, "config-backfill-empty");
+    await mkdir(configDir, { recursive: true });
+    const projectConfig = new ProjectConfig(configDir);
+    await projectConfig.save([]); // no projects
+
+    const pm = new ProjectManager(projectConfig, {
+      basePort: nextPort(),
+      skipOpenCode: true,
+    });
+
+    const relay = new Relay(`ws://localhost:${orchPort}`, pm, "test-key");
+    cleanups.push(async () => {
+      await relay.disconnect();
+      await pm.stopAll();
+    });
+
+    await relay.connect();
+    const daemonWs = await orch.waitForDaemon();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Listen for sync_response
+    const syncResponsePromise = new Promise<{
+      type: string;
+      sessions: unknown[];
+    }>((resolve) => {
+      const handler = (data: Buffer) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "sync_response") {
+          daemonWs.off("message", handler);
+          resolve(msg);
+        }
+      };
+      daemonWs.on("message", handler);
+    });
+
+    await relay.backfillSessions();
+
+    const syncResponse = await syncResponsePromise;
+    assert.equal(syncResponse.type, "sync_response");
+    assert.equal(syncResponse.sessions.length, 0, "Should have 0 sessions");
+  });
+
+  it("skips sessions where message fetch fails", async () => {
+    // Set up a project where one session will 404 on message fetch
+    const ocPort = nextPort();
+    const orchPort = nextPort();
+
+    // Custom mock: session "good-1" returns messages, "bad-1" returns 500
+    const server = await new Promise<http.Server>((resolve) => {
+      const srv = http.createServer((req, res) => {
+        const url = new URL(req.url!, `http://localhost:${ocPort}`);
+
+        if (req.method === "GET" && url.pathname === "/session") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            { id: "good-1", title: "Good", directory: "C:\\proj\\test" },
+            { id: "bad-1", title: "Bad", directory: "C:\\proj\\test" },
+          ]));
+          return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/session/good-1/message") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            { id: "msg-good", role: "user", parts: [{ type: "text", text: "hi" }], completed: true },
+          ]));
+          return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/session/bad-1/message") {
+          res.writeHead(500);
+          res.end("Internal error");
+          return;
+        }
+
+        res.writeHead(404);
+        res.end("Not found");
+      });
+      srv.listen(ocPort, () => resolve(srv));
+    });
+    cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
+
+    const orch = createMockOrchestrator(orchPort);
+    cleanups.push(
+      () => new Promise<void>((r) => orch.server.close(() => r())),
+    );
+
+    const configDir = join(tempDir, "config-backfill-partial");
+    await mkdir(configDir, { recursive: true });
+    const projectConfig = new ProjectConfig(configDir);
+    await projectConfig.save([{ name: "test", directory: "C:\\proj\\test" }]);
+
+    const pm = new ProjectManager(projectConfig, {
+      basePort: ocPort,
+      skipOpenCode: true,
+    });
+    await pm.startAll();
+
+    const relay = new Relay(`ws://localhost:${orchPort}`, pm, "test-key");
+    cleanups.push(async () => {
+      await relay.disconnect();
+      await pm.stopAll();
+    });
+
+    await relay.connect();
+    const daemonWs = await orch.waitForDaemon();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Listen for sync_response
+    const syncResponsePromise = new Promise<{
+      type: string;
+      sessions: Array<{ id: string; messages: unknown[] }>;
+    }>((resolve) => {
+      const handler = (data: Buffer) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "sync_response") {
+          daemonWs.off("message", handler);
+          resolve(msg);
+        }
+      };
+      daemonWs.on("message", handler);
+    });
+
+    await relay.backfillSessions();
+
+    const syncResponse = await syncResponsePromise;
+    assert.equal(syncResponse.type, "sync_response");
+    // Only "good-1" should be included (bad-1 failed)
+    assert.equal(syncResponse.sessions.length, 1, "Should only have the successful session");
+    assert.equal(syncResponse.sessions[0].id, "good-1");
+  });
+});

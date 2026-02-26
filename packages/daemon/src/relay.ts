@@ -637,6 +637,62 @@ export class Relay {
     this.send(response);
   }
 
+  /**
+   * Proactively fetch ALL sessions and their messages from all projects,
+   * then send a single sync_response to the orchestrator.
+   *
+   * Used after attaching to an already-running OpenCode instance so the
+   * orchestrator gets the full session history without waiting for a
+   * sync_request (which would have empty cachedSessionIds).
+   */
+  async backfillSessions(): Promise<void> {
+    const allSessions = await this.projectManager.listAllSessions();
+    const sessions: SyncResponse["sessions"] = [];
+
+    for (const session of allSessions) {
+      const baseUrl = this.projectManager.getBaseUrlForSession(session.id);
+      if (!baseUrl) continue;
+
+      try {
+        const res = await fetch(`${baseUrl}/session/${session.id}/message`);
+        if (!res.ok) {
+          console.error(
+            `[relay] backfill: failed to fetch messages for ${session.id}: ${res.status}`,
+          );
+          continue;
+        }
+
+        const messages = (await res.json()) as Array<{
+          id: string;
+          role: string;
+          parts: unknown[];
+          completed?: boolean;
+        }>;
+
+        sessions.push({
+          id: session.id,
+          messages: messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            parts: m.parts ?? [],
+            completed: m.completed ?? true,
+          })),
+        });
+      } catch (err) {
+        console.error(
+          `[relay] backfill: error fetching session ${session.id}:`,
+          err,
+        );
+      }
+    }
+
+    const response: SyncResponse = {
+      type: "sync_response",
+      sessions,
+    };
+    this.send(response);
+  }
+
   send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
