@@ -1,0 +1,135 @@
+/**
+ * Pure utility functions for session list presentation.
+ * No React dependency — testable under node:test.
+ */
+
+import type { Session } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Time formatting
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a compact relative time string (e.g., "now", "5m", "3h", "2d").
+ */
+export function getTimeAgo(isoDate: string): string {
+  const now = Date.now();
+  const then = new Date(isoDate).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+
+  if (diffMin < 1) return "now";
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d`;
+}
+
+// ---------------------------------------------------------------------------
+// Project extraction & filtering
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract unique project names from sessions, sorted alphabetically.
+ * Sessions without a project are excluded.
+ */
+export function getUniqueProjects(sessions: Session[]): string[] {
+  const set = new Set<string>();
+  for (const s of sessions) {
+    if (s.project) set.add(s.project);
+  }
+  return [...set].sort();
+}
+
+/**
+ * Filter sessions by project. Returns all sessions when project is null.
+ */
+export function filterSessionsByProject(
+  sessions: Session[],
+  project: string | null,
+): Session[] {
+  if (project === null) return sessions;
+  return sessions.filter((s) => s.project === project);
+}
+
+// ---------------------------------------------------------------------------
+// Day grouping
+// ---------------------------------------------------------------------------
+
+export interface SessionGroup {
+  /** Display label: "Today", "Yesterday", or a date string */
+  label: string;
+  /** Date key for sorting (YYYY-MM-DD) */
+  dateKey: string;
+  /** Sessions in this group, sorted newest first */
+  sessions: Session[];
+}
+
+/**
+ * Group sessions by day (based on updatedAt), sorted newest day first.
+ * Within each day, sessions are sorted newest first.
+ */
+export function groupSessionsByDay(sessions: Session[]): SessionGroup[] {
+  if (sessions.length === 0) return [];
+
+  // Sort all sessions newest first
+  const sorted = [...sessions].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+
+  // Group by date key
+  const groups = new Map<string, Session[]>();
+  for (const s of sorted) {
+    const dateKey = toDateKey(s.updatedAt);
+    const group = groups.get(dateKey);
+    if (group) {
+      group.push(s);
+    } else {
+      groups.set(dateKey, [s]);
+    }
+  }
+
+  // Build result: newest day first (Map preserves insertion order, and we
+  // sorted sessions newest first, so the first key is the newest day)
+  const todayKey = toDateKey(new Date().toISOString());
+  const yesterdayKey = toDateKey(
+    new Date(Date.now() - 86_400_000).toISOString(),
+  );
+
+  const result: SessionGroup[] = [];
+  for (const [dateKey, groupSessions] of groups) {
+    let label: string;
+    if (dateKey === todayKey) {
+      label = "Today";
+    } else if (dateKey === yesterdayKey) {
+      label = "Yesterday";
+    } else {
+      label = formatDateLabel(dateKey);
+    }
+    result.push({ label, dateKey, sessions: groupSessions });
+  }
+
+  return result;
+}
+
+/**
+ * Convert an ISO date string to a YYYY-MM-DD key (local timezone).
+ */
+function toDateKey(isoDate: string): string {
+  const d = new Date(isoDate);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Format a YYYY-MM-DD key into a human-readable label (e.g., "Feb 20").
+ */
+function formatDateLabel(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const d = new Date(year, month - 1, day);
+  const monthName = d.toLocaleDateString("en-US", { month: "short" });
+  return `${monthName} ${day}`;
+}
