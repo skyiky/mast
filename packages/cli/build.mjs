@@ -18,8 +18,10 @@ await build({
   platform: "node",
   target: "node20",
   format: "esm",
-  // ws has optional native deps; keep it external
-  external: ["ws"],
+  // ws has optional native deps; keep it external.
+  // @supabase/supabase-js is used by the orchestrator's Supabase store
+  // (production only) — externalize to avoid bundling its large dep tree.
+  external: ["ws", "@supabase/supabase-js"],
   // Banner doesn't work reliably for shebang — we'll prepend manually
   minify: false,
   sourcemap: false,

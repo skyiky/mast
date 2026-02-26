@@ -9,7 +9,8 @@
  */
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { parseCliArgs } from "./args.js";
 import { autoDetect } from "./auto-detect.js";
 import { startCli } from "./runner.js";
@@ -27,8 +28,31 @@ process.title = "mast-cli";
 const VERSION = "0.0.1";
 const CONFIG_DIR = join(homedir(), ".mast");
 
+/**
+ * Resolve the web client dist path at runtime.
+ *
+ * - Monorepo dev (tsx):  import.meta.dirname = packages/cli/src
+ *   → ../../web/dist = packages/web/dist
+ * - Bundled (dist/cli.mjs): import.meta.dirname = packages/cli/dist
+ *   → ../../web/dist = packages/web/dist  (same monorepo layout)
+ *
+ * Returns undefined if no built web client is found.
+ */
+function resolveWebDistPath(): string | undefined {
+  // Try monorepo layout (works for both dev and bundled mode)
+  const monorepoPath = resolve(import.meta.dirname, "../../web/dist");
+  if (existsSync(monorepoPath)) return monorepoPath;
+
+  // Try npm-published layout (web/dist alongside cli dist)
+  const bundledPath = resolve(import.meta.dirname, "../web/dist");
+  if (existsSync(bundledPath)) return bundledPath;
+
+  return undefined;
+}
+
 async function main() {
   const config = parseCliArgs(process.argv.slice(2));
+  const webDistPath = resolveWebDistPath();
 
   const result = await startCli(config, {
     log: console.log,
@@ -38,7 +62,7 @@ async function main() {
     startOrchestrator: async (opts) => {
       const handle = await startServer(opts.port, {
         devMode: true,
-        webDistPath: opts.webDistPath,
+        webDistPath: opts.webDistPath ?? webDistPath,
       });
       return {
         port: handle.port,
