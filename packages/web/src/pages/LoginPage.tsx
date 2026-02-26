@@ -36,6 +36,10 @@ export function LoginPage() {
     setLoading(true);
     setError(null);
     try {
+      // Always redirect back to the origin after OAuth. If the user was
+      // heading to /confirm-daemon?code=..., App.tsx already saved the path
+      // in sessionStorage — a redirect handler inside BrowserRouter will
+      // pick it up after auth completes.
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "github",
         options: {

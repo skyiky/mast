@@ -11,7 +11,7 @@ describe("runPairingFlow", () => {
   beforeEach(async () => {
     wss = new WebSocketServer({ port: 0 });
     const addr = wss.address();
-    port = typeof addr === "object" ? addr.port : 0;
+    port = typeof addr === "object" ? (addr?.port ?? 0) : 0;
   });
 
   afterEach(async () => {
@@ -41,6 +41,34 @@ describe("runPairingFlow", () => {
     const key = await runPairingFlow(`ws://localhost:${port}`);
     assert.equal(key, "dk_test-device-key-123");
     assert.ok(receivedCode !== null, "server should have received the pairing code");
+  });
+
+  it("sends hostname and projects in pair_request", async () => {
+    let receivedHostname: string | undefined;
+    let receivedProjects: string[] | undefined;
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString()) as PairRequest;
+        receivedHostname = msg.hostname;
+        receivedProjects = msg.projects;
+
+        const response: PairResponse = {
+          type: "pair_response",
+          success: true,
+          deviceKey: "dk_meta-test",
+        };
+        ws.send(JSON.stringify(response));
+      });
+    });
+
+    await runPairingFlow(`ws://localhost:${port}`, {
+      hostname: "test-machine",
+      projects: ["my-app", "other-repo"],
+    });
+
+    assert.equal(receivedHostname, "test-machine");
+    assert.deepEqual(receivedProjects, ["my-app", "other-repo"]);
   });
 
   it("rejects when pairing fails with error", async () => {
@@ -77,8 +105,8 @@ describe("runPairingFlow", () => {
     );
   });
 
-  it("calls onDisplayCode callback with the generated code", async () => {
-    let displayedCode: string | null = null;
+  it("calls onBrowserOpened callback with the confirmation URL", async () => {
+    let openedUrl: string | null = null;
 
     wss.on("connection", (ws) => {
       ws.on("message", () => {
@@ -92,12 +120,15 @@ describe("runPairingFlow", () => {
     });
 
     await runPairingFlow(`ws://localhost:${port}`, {
-      onDisplayCode: (code, _qrPayload) => {
-        displayedCode = code;
+      onBrowserOpened: (url) => {
+        openedUrl = url;
       },
     });
 
-    assert.ok(displayedCode !== null, "onDisplayCode should have been called");
-    assert.equal(displayedCode!.length, 6);
+    assert.ok(openedUrl !== null, "onBrowserOpened should have been called");
+    assert.ok(
+      (openedUrl as string).includes("/confirm-daemon?code="),
+      "URL should contain the confirmation path",
+    );
   });
 });

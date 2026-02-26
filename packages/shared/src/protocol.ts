@@ -82,6 +82,8 @@ export interface SyncResponse {
 export interface PairRequest {
   type: "pair_request";
   pairingCode: string;
+  hostname?: string;
+  projects?: string[];
 }
 
 export type DaemonMessage = HttpResponse | EventMessage | DaemonStatus | Heartbeat | SyncResponse | PairRequest;

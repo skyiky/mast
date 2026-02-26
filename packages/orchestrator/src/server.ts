@@ -208,7 +208,10 @@ export function startServer(
               try {
                 const msg = JSON.parse(data.toString());
                 if (msg.type === "pair_request") {
-                  pairingManager.registerCode(msg.pairingCode, ws);
+                  pairingManager.registerCode(msg.pairingCode, ws, {
+                    hostname: msg.hostname,
+                    projects: msg.projects,
+                  });
                 }
               } catch (err) {
                 console.error("[orchestrator] pairing message error:", err);

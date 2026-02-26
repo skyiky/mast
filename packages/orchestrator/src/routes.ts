@@ -525,6 +525,26 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
 
   // --- Pairing routes (Phase 4) ---
 
+  // Get info about a pending pairing (confirmation page fetches this)
+  app.get("/pair/pending", (c) => {
+    if (!pairingManager) {
+      return c.json({ error: "Pairing not configured" }, 500);
+    }
+    const code = c.req.query("code");
+    if (!code) {
+      return c.json({ error: "Missing code" }, 400);
+    }
+    const pending = pairingManager.getPending(code);
+    if (!pending) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    return c.json({
+      hostname: pending.hostname ?? null,
+      projects: pending.projects ?? [],
+      createdAt: pending.createdAt,
+    });
+  });
+
   // Verify a pairing code (phone submits code → gets device key)
   app.post("/pair/verify", async (c) => {
     const userId = c.get("userId");

@@ -161,15 +161,12 @@ async function createDaemon(opts: {
     const keyStore = new KeyStore();
     deviceKey = await keyStore.load();
     if (!deviceKey) {
-      console.log("[mast] No device key found — starting pairing flow");
+      console.log("[mast] No device key found — opening browser for pairing");
       deviceKey = await runPairingFlow(orchestratorUrl, {
-        onDisplayCode: (code, _qrPayload) => {
-          console.log("");
-          console.log("=========================================");
-          console.log(`  PAIRING CODE:  ${code}`);
-          console.log("  Enter this code in the web UI to pair.");
-          console.log("=========================================");
-          console.log("");
+        projects: [project.name],
+        onBrowserOpened: (url) => {
+          console.log("[mast] Opening browser for pairing confirmation...");
+          console.log(`[mast] If the browser didn't open, visit: ${url}`);
         },
       });
       await keyStore.save(deviceKey);
@@ -192,13 +189,10 @@ async function createDaemon(opts: {
       await keyStore.clear();
 
       const newKey = await runPairingFlow(orchestratorUrl, {
-        onDisplayCode: (code, _qrPayload) => {
-          console.log("");
-          console.log("=========================================");
-          console.log(`  PAIRING CODE:  ${code}`);
-          console.log("  Enter this code in the web UI to pair.");
-          console.log("=========================================");
-          console.log("");
+        projects: [project.name],
+        onBrowserOpened: (url) => {
+          console.log("[mast] Opening browser for pairing confirmation...");
+          console.log(`[mast] If the browser didn't open, visit: ${url}`);
         },
       });
       await keyStore.save(newKey);
@@ -283,15 +277,12 @@ async function createAttachDaemon(opts: {
     const keyStore = new KeyStore();
     deviceKey = await keyStore.load();
     if (!deviceKey) {
-      console.log("[mast] No device key found — starting pairing flow");
+      console.log("[mast] No device key found — opening browser for pairing");
       deviceKey = await runPairingFlow(orchestratorUrl, {
-        onDisplayCode: (code, _qrPayload) => {
-          console.log("");
-          console.log("=========================================");
-          console.log(`  PAIRING CODE:  ${code}`);
-          console.log("  Enter this code in the web UI to pair.");
-          console.log("=========================================");
-          console.log("");
+        projects: [projectName],
+        onBrowserOpened: (url) => {
+          console.log("[mast] Opening browser for pairing confirmation...");
+          console.log(`[mast] If the browser didn't open, visit: ${url}`);
         },
       });
       await keyStore.save(deviceKey);
@@ -318,13 +309,10 @@ async function createAttachDaemon(opts: {
       await keyStore.clear();
 
       const newKey = await runPairingFlow(orchestratorUrl, {
-        onDisplayCode: (code, _qrPayload) => {
-          console.log("");
-          console.log("=========================================");
-          console.log(`  PAIRING CODE:  ${code}`);
-          console.log("  Enter this code in the web UI to pair.");
-          console.log("=========================================");
-          console.log("");
+        projects: [projectName],
+        onBrowserOpened: (url) => {
+          console.log("[mast] Opening browser for pairing confirmation...");
+          console.log(`[mast] If the browser didn't open, visit: ${url}`);
         },
       });
       await keyStore.save(newKey);

@@ -6,11 +6,10 @@
  * 2. Create ProjectManager and start all OpenCode instances
  * 3. Load device key from ~/.mast/device-key.json
  * 4. If key exists → connect to orchestrator as authenticated daemon
- * 5. If no key → run pairing flow
+ * 5. If no key → run pairing flow (opens browser for user confirmation)
  * 6. Start health monitoring for all projects
  */
 
-import QRCode from "qrcode";
 import {
   type EventMessage,
   type DaemonStatus,
@@ -112,6 +111,9 @@ async function main() {
     );
   }
 
+  // Collect project names for pairing metadata
+  const projectNames = projects.map((p) => p.name);
+
   // --- Load or acquire device key ---
   const keyStore = new KeyStore();
   let deviceKey = await keyStore.load();
@@ -119,9 +121,13 @@ async function main() {
   if (deviceKey) {
     console.log(`[daemon] Loaded device key from ${keyStore.file}`);
   } else {
-    console.log("[daemon] No device key found — starting pairing flow");
+    console.log("[daemon] No device key found — opening browser for pairing");
     deviceKey = await runPairingFlow(ORCHESTRATOR_URL, {
-      onDisplayCode: (code, qrPayload) => displayPairingCode(code, qrPayload, "[daemon]"),
+      projects: projectNames,
+      onBrowserOpened: (url) => {
+        console.log("[daemon] Opening browser for pairing confirmation...");
+        console.log(`[daemon] If the browser didn't open, visit: ${url}`);
+      },
     });
     await keyStore.save(deviceKey);
     console.log(`[daemon] Device key saved to ${keyStore.file}`);
@@ -142,7 +148,11 @@ async function main() {
       await keyStore.clear();
 
       const newKey = await runPairingFlow(ORCHESTRATOR_URL, {
-        onDisplayCode: (code, qrPayload) => displayPairingCode(code, qrPayload, "[daemon]"),
+        projects: projectNames,
+        onBrowserOpened: (url) => {
+          console.log("[daemon] Opening browser for pairing confirmation...");
+          console.log(`[daemon] If the browser didn't open, visit: ${url}`);
+        },
       });
       await keyStore.save(newKey);
       console.log(`[daemon] New device key saved to ${keyStore.file}`);
@@ -170,31 +180,6 @@ async function main() {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-}
-
-/**
- * Display the pairing code and QR code in the terminal.
- */
-function displayPairingCode(code: string, qrPayload: string, prefix: string): void {
-  console.log("");
-  console.log("=========================================");
-  console.log(`  PAIRING CODE:  ${code}`);
-  console.log("  Enter this code on your phone to pair.");
-  console.log("=========================================");
-
-  // Display QR code in terminal (async, non-blocking)
-  QRCode.toString(qrPayload, { type: "terminal", small: true })
-    .then((qrString: string) => {
-      console.log("");
-      console.log("  Or scan this QR code with the Mast app:");
-      console.log("");
-      console.log(qrString);
-    })
-    .catch(() => {
-      console.log("  (QR code display unavailable)");
-    });
-
-  console.log("");
 }
 
 main().catch((err) => {

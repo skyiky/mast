@@ -116,6 +116,17 @@ export async function verifyPairingCode(
   );
 }
 
+export async function getPendingPairing(
+  config: ApiConfig,
+  code: string,
+) {
+  return request<{
+    hostname: string | null;
+    projects: string[];
+    createdAt: number;
+  }>(config, "GET", `/pair/pending?code=${encodeURIComponent(code)}`);
+}
+
 export async function registerPushToken(
   config: ApiConfig,
   token: string,

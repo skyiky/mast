@@ -5,6 +5,7 @@ dist/
 .environment
 deploy.env
 supabase/.temp/
+.azure/
 
 # OS/tool artifacts
 nul

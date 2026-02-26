@@ -12,6 +12,8 @@ export interface PendingPairing {
   code: string;
   createdAt: number;
   daemonWs: WsWebSocket;
+  hostname?: string;
+  projects?: string[];
 }
 
 export class PairingManager {
@@ -26,14 +28,24 @@ export class PairingManager {
    * Register a new pairing code from a daemon.
    * If this daemon already has a pending code, the old one is replaced.
    */
-  registerCode(code: string, daemonWs: WsWebSocket): void {
+  registerCode(
+    code: string,
+    daemonWs: WsWebSocket,
+    meta?: { hostname?: string; projects?: string[] },
+  ): void {
     // If this daemon already has a pending pairing, reject the old one
     const existingCode = this.pendingByWs.get(daemonWs);
     if (existingCode) {
       this.rejectPending(existingCode, "replaced");
     }
 
-    this.pendingByCode.set(code, { code, createdAt: Date.now(), daemonWs });
+    this.pendingByCode.set(code, {
+      code,
+      createdAt: Date.now(),
+      daemonWs,
+      hostname: meta?.hostname,
+      projects: meta?.projects,
+    });
     this.pendingByWs.set(daemonWs, code);
   }
 
@@ -122,6 +134,23 @@ export class PairingManager {
     this.cleanupExpired();
     const first = this.pendingByCode.keys().next();
     return first.done ? null : first.value;
+  }
+
+  /**
+   * Get info about a pending pairing by code.
+   * Returns null if the code is not found or has expired.
+   */
+  getPending(
+    code: string,
+  ): { hostname?: string; projects?: string[]; createdAt: number } | null {
+    this.cleanupExpired();
+    const pending = this.pendingByCode.get(code);
+    if (!pending) return null;
+    return {
+      hostname: pending.hostname,
+      projects: pending.projects,
+      createdAt: pending.createdAt,
+    };
   }
 
   private rejectPending(code: string, reason: string): void {
