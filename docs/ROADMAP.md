@@ -7,15 +7,18 @@ Gaps identified by comparing Mast against [Claude Code Remote Control](https://c
 ### 1. Web Browser Client
 
 **Priority:** High
-**Status:** Not started
+**Status:** Done
 
 Claude RC works from any browser via claude.ai/code. Mast requires installing the native mobile app. A web client would lower the barrier to entry and let users access sessions from any laptop or desktop without installing anything.
 
-**Scope:**
-- Build a web client (React, same Zustand stores / API client as mobile) hosted alongside the orchestrator or as a static SPA
+**Implemented:**
+- `@mast/web` package — Vite + React 19 + Zustand 5 SPA in `packages/web`
 - WebSocket connection to orchestrator using the same `/ws?token=` endpoint
-- Feature parity with mobile: chat, permission approval, diff review, session list, project filter
-- Responsive layout — works on desktop and tablet browsers
+- Feature parity with mobile: chat, permission approval, diff review, session list, project filter, settings
+- Session controls: abort execution, view diff (modal with +/- coloring), revert last response
+- Settings page: connection status, verbosity/mode toggles, re-pair, sign out
+- Responsive terminal-dark UI with JetBrains Mono, CSS custom properties
+- 185 tests (API, event handler, stores, hooks, utils) using Node.js built-in test runner
 
 ### 2. Zero-Config Setup
 
