@@ -7,17 +7,21 @@ import { SessionsPage } from "./pages/SessionsPage.js";
 import { ChatPage } from "./pages/ChatPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
+import { useHydration } from "./hooks/useHydration.js";
+import { useAutoConnect } from "./hooks/useAutoConnect.js";
 
 export function App() {
   const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
-  const hydrated = useConnectionStore((s) => s._hydrated);
+  const hydrated = useHydration();
+
+  // Auto-connect in local mode after hydration completes.
+  useAutoConnect(hydrated);
 
   // Connect WebSocket when authenticated + paired
   useWebSocket();
 
-  // Wait for persist rehydration before deciding which page to show.
-  // Auto-connect for local mode runs inside onRehydrateStorage (connection store).
+  // Wait for persist rehydration + auto-connect before deciding which page to show.
   if (!hydrated) return null;
 
   // Auth guard: no token → login, no pairing → pair

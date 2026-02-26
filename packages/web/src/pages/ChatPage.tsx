@@ -8,12 +8,17 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../stores/sessions.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useShallow } from "zustand/react/shallow";
 import { useApi } from "../hooks/useApi.js";
 import { MessageBubble } from "../components/MessageBubble.js";
 import { PermissionCard } from "../components/PermissionCard.js";
 import { SessionControls } from "../components/SessionControls.js";
 import type { ChatMessage } from "../lib/types.js";
 import "../styles/chat.css";
+
+/** Stable empty array — avoids infinite re-render loop with useSyncExternalStore
+ *  when the selector fallback creates a new [] reference each render. */
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export function ChatPage() {
   const { id: sessionId } = useParams<{ id: string }>();
@@ -22,11 +27,11 @@ export function ChatPage() {
   const verbosity = useSettingsStore((s) => s.verbosity);
 
   const messages = useSessionStore(
-    (s) => (sessionId ? s.messagesBySession[sessionId] : undefined) ?? [],
+    (s) => (sessionId ? s.messagesBySession[sessionId] : undefined) ?? EMPTY_MESSAGES,
   );
-  const permissions = useSessionStore((s) =>
+  const permissions = useSessionStore(useShallow((s) =>
     s.permissions.filter((p) => p.sessionId === sessionId),
-  );
+  ));
   const setMessages = useSessionStore((s) => s.setMessages);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const addMessage = useSessionStore((s) => s.addMessage);

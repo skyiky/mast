@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { detectLocalMode } from "../lib/local-mode.js";
 
 interface ConnectionState {
   /** Orchestrator base URL (HTTP) */
@@ -19,8 +18,6 @@ interface ConnectionState {
   opencodeReady: boolean;
   /** Whether initial setup (pairing) is complete */
   paired: boolean;
-  /** Whether persist rehydration is complete */
-  _hydrated: boolean;
 
   // Actions
   setServerUrl: (url: string) => void;
@@ -44,7 +41,6 @@ const DEFAULT_STATE = {
   daemonConnected: false,
   opencodeReady: false,
   paired: false,
-  _hydrated: false,
 };
 
 export const useConnectionStore = create<ConnectionState>()(
@@ -91,36 +87,8 @@ export const useConnectionStore = create<ConnectionState>()(
         wsUrl: state.wsUrl,
         paired: state.paired,
       }),
-      onRehydrateStorage: () => {
-        // Returned function runs AFTER rehydration completes.
-        return (state, error) => {
-          // Mark hydration complete regardless of whether state was found.
-          // Without this, the App renders null forever.
-          useConnectionStore.setState({ _hydrated: true });
-
-          if (error) return;
-
-          // Auto-connect in local mode: if no apiToken after rehydration
-          // and we're on localhost, configure the connection automatically.
-          const currentToken = useConnectionStore.getState().apiToken;
-          if (!currentToken) {
-            const origin =
-              typeof window !== "undefined"
-                ? window.location.origin
-                : "";
-            const result = detectLocalMode(origin);
-            if (result.isLocal) {
-              useConnectionStore.setState({
-                serverUrl: result.serverUrl,
-                wsUrl: result.wsUrl,
-                apiToken: result.apiToken,
-                authReady: true,
-                paired: true,
-              });
-            }
-          }
-        };
-      },
+      // No onRehydrateStorage — auto-connect runs via useAutoConnect hook
+      // after React is mounted and hydration is confirmed complete.
     },
   ),
 );

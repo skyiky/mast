@@ -11,6 +11,10 @@ import { useApi } from "../hooks/useApi.js";
 import { DiffView } from "./DiffView.js";
 import type { ChatMessage } from "../lib/types.js";
 
+/** Stable empty array — avoids infinite re-render loop with useSyncExternalStore
+ *  when the selector fallback creates a new [] reference each render. */
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 interface SessionControlsProps {
   sessionId: string;
   /** Called after revert with the user's original prompt text to re-fill */
@@ -21,7 +25,7 @@ export function SessionControls({ sessionId, onRevert }: SessionControlsProps) {
   const api = useApi();
 
   const messages = useSessionStore(
-    (s) => s.messagesBySession[sessionId] ?? [],
+    (s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
   );
   const setMessages = useSessionStore((s) => s.setMessages);
   const isStreaming = messages.some((m: ChatMessage) => m.streaming);

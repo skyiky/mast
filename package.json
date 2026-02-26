@@ -13,5 +13,8 @@
     "test": "npm test --workspace=packages/orchestrator && npm test --workspace=packages/daemon && npm test --workspace=packages/cli && npm test --workspace=packages/web && npm test --workspace=packages/mobile",
     "lint": "npm run lint:selectors --workspace=packages/mobile",
     "pretest": "npm run lint"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
   }
 }

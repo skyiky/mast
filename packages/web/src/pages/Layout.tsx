@@ -1,5 +1,6 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { ConnectionBanner } from "../components/ConnectionBanner.js";
+import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import "../styles/layout.css";
 
 export function Layout() {
@@ -22,7 +23,9 @@ export function Layout() {
         {/* Session list rendered inline on desktop via SessionsPage */}
       </nav>
       <main className="main-content">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );
