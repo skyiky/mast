@@ -9,11 +9,16 @@ import { SettingsPage } from "./pages/SettingsPage.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useHydration } from "./hooks/useHydration.js";
 import { useAutoConnect } from "./hooks/useAutoConnect.js";
+import { useSupabaseAuth } from "./hooks/useSupabaseAuth.js";
 
 export function App() {
   const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
   const hydrated = useHydration();
+
+  // Bridge Supabase auth state into connection store (hosted mode).
+  // In local mode this is a no-op — useAutoConnect overwrites the token.
+  useSupabaseAuth();
 
   // Auto-connect in local mode after hydration completes.
   useAutoConnect(hydrated);

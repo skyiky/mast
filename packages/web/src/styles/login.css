@@ -50,3 +50,28 @@
   padding: 10px 16px;
   margin-top: 8px;
 }
+
+.login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-error {
+  color: var(--error, #e55);
+  font-size: 12px;
+  text-align: center;
+}
+
+.login-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px;
+}
+
+.login-link:hover {
+  color: var(--text);
+}

@@ -11,6 +11,7 @@
 
 import { useConnectionStore } from "../stores/connection.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { supabase } from "../lib/supabase.js";
 import "../styles/settings.css";
 
 export function SettingsPage() {
@@ -18,7 +19,7 @@ export function SettingsPage() {
   const wsConnected = useConnectionStore((s) => s.wsConnected);
   const daemonConnected = useConnectionStore((s) => s.daemonConnected);
   const opencodeReady = useConnectionStore((s) => s.opencodeReady);
-  const signOut = useConnectionStore((s) => s.signOut);
+  const connectionSignOut = useConnectionStore((s) => s.signOut);
   const reset = useConnectionStore((s) => s.reset);
 
   const verbosity = useSettingsStore((s) => s.verbosity);
@@ -113,7 +114,13 @@ export function SettingsPage() {
             [re-pair device]
           </button>
           <div className="settings-divider" />
-          <button className="settings-action-btn danger" onClick={signOut}>
+          <button
+            className="settings-action-btn danger"
+            onClick={() => {
+              supabase.auth.signOut();
+              connectionSignOut();
+            }}
+          >
             [sign out]
           </button>
         </div>
