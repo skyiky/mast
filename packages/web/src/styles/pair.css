@@ -1,0 +1,63 @@
+/* Pair page */
+
+.pair-page {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.pair-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.pair-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--bright);
+}
+
+.pair-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.pair-input {
+  width: 100%;
+  text-align: center;
+  font-size: 20px;
+  letter-spacing: 4px;
+  font-weight: 600;
+}
+
+.pair-error {
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.pair-btn {
+  width: 100%;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  padding: 10px 16px;
+}
+
+.pair-back {
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px;
+}
+.pair-back:hover {
+  color: var(--text);
+}
