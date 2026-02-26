@@ -84,6 +84,12 @@ async function main() {
     new PushDeduplicator(),
   );
 
+  // --- Web client dist path (for Docker / hosted deployments) ---
+  const webDistPath = process.env.WEB_DIST_PATH;
+  if (webDistPath) {
+    console.log(`[orchestrator] Serving web client from ${webDistPath}`);
+  }
+
   // --- Start server ---
   const handle = await startServer(PORT, {
     store,
@@ -92,6 +98,7 @@ async function main() {
     jwtSecret,
     devMode,
     supabaseStore,
+    webDistPath,
   });
 
   // Now wire the phone-connected check to the actual phone connections

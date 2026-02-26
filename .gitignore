@@ -2,5 +2,9 @@ node_modules/
 dist/
 *.js.map
 .env
+.environment
 supabase/.temp/
-packages/mobile/nul
+
+# OS/tool artifacts
+nul
+*.log
