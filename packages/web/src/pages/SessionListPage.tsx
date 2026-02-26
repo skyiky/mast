@@ -11,6 +11,7 @@ import { useSessions } from "../hooks/useSessions.js";
 import {
   groupSessionsByStatus,
   filterSessionsByProject,
+  formatSessionTime,
 } from "../lib/sessions-utils.js";
 import type { Session } from "../lib/types.js";
 
@@ -144,6 +145,10 @@ function SessionRowInner({
 
       <span className="session-row-title">
         {session.title || `${session.id.slice(0, 12)}...`}
+      </span>
+
+      <span className="session-row-time">
+        {formatSessionTime(session.updatedAt)}
       </span>
 
       <span

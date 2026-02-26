@@ -26,6 +26,30 @@ export function getTimeAgo(isoDate: string): string {
   return `${diffDay}d`;
 }
 
+/**
+ * Format session updated time for display.
+ * Today → "HH:MM", older → "N Day(s) Ago".
+ * Accepts optional `now` timestamp for testability.
+ */
+export function formatSessionTime(
+  isoDate: string,
+  now: number = Date.now(),
+): string {
+  const date = new Date(isoDate);
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  if (date.getTime() >= todayStart.getTime()) {
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  const diffMs = todayStart.getTime() - date.getTime();
+  const days = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  return `${days} ${days === 1 ? "Day" : "Days"} Ago`;
+}
+
 // ---------------------------------------------------------------------------
 // Project extraction & filtering
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
   mapRawSession,
   mapRawSessions,
   formatProjectPath,
+  formatSessionTime,
 } from "../src/lib/sessions-utils.js";
 import type { Session } from "../src/lib/types.js";
 
@@ -475,5 +476,62 @@ describe("formatProjectPath", () => {
   it("returns null for empty directory string", () => {
     const session = makeSession({ directory: "" });
     assert.equal(formatProjectPath(session), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatSessionTime
+// ---------------------------------------------------------------------------
+
+describe("formatSessionTime", () => {
+  it("returns HH:MM for a session updated today", () => {
+    const now = new Date();
+    now.setHours(14, 30, 0, 0);
+    const result = formatSessionTime(now.toISOString(), now.getTime());
+    assert.equal(result, "14:30");
+  });
+
+  it("zero-pads single-digit hours and minutes", () => {
+    const now = new Date();
+    now.setHours(9, 5, 0, 0);
+    const result = formatSessionTime(now.toISOString(), now.getTime());
+    assert.equal(result, "09:05");
+  });
+
+  it("returns '1 Day Ago' for yesterday", () => {
+    const now = Date.now();
+    const yesterday = new Date(now - 24 * 60 * 60 * 1000);
+    // Ensure it's actually a different calendar day by going back far enough
+    yesterday.setHours(10, 0, 0, 0);
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    // Only run this assertion if yesterday is truly a different calendar day
+    if (yesterday.getTime() < todayStart.getTime()) {
+      const result = formatSessionTime(yesterday.toISOString(), now);
+      assert.equal(result, "1 Day Ago");
+    }
+  });
+
+  it("returns 'N Days Ago' for older sessions", () => {
+    const now = Date.now();
+    const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000);
+    threeDaysAgo.setHours(12, 0, 0, 0);
+    const result = formatSessionTime(threeDaysAgo.toISOString(), now);
+    assert.match(result, /^\d+ Days? Ago$/);
+  });
+
+  it("returns '2 Days Ago' for a date 2 calendar days before now", () => {
+    // Use a fixed reference: "now" is Jan 10 at noon
+    const now = new Date(2026, 0, 10, 12, 0, 0).getTime();
+    const twoDaysAgo = new Date(2026, 0, 8, 15, 0, 0).toISOString();
+    const result = formatSessionTime(twoDaysAgo, now);
+    assert.equal(result, "2 Days Ago");
+  });
+
+  it("returns '1 Day Ago' (singular) not '1 Days Ago'", () => {
+    const now = new Date(2026, 0, 10, 12, 0, 0).getTime();
+    const oneDayAgo = new Date(2026, 0, 9, 8, 0, 0).toISOString();
+    const result = formatSessionTime(oneDayAgo, now);
+    assert.equal(result, "1 Day Ago");
   });
 });
