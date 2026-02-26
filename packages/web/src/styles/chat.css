@@ -442,3 +442,249 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Chat header with session controls */
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+/* Session controls toolbar */
+.session-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ctrl-btn {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ctrl-btn:hover:not(:disabled) {
+  border-color: var(--dim);
+  color: var(--text);
+}
+.ctrl-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.ctrl-btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.ctrl-btn.danger:hover:not(:disabled) {
+  background: var(--danger-dim);
+}
+.ctrl-btn.danger:disabled {
+  color: var(--dim);
+  border-color: var(--border);
+}
+.ctrl-btn.warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.ctrl-btn.warning:hover:not(:disabled) {
+  background: var(--warning-dim);
+}
+.ctrl-btn.warning:disabled {
+  color: var(--dim);
+  border-color: var(--border);
+}
+
+/* Diff overlay */
+.diff-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.diff-modal {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  width: 90vw;
+  max-width: 800px;
+  height: 80vh;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.diff-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bright);
+}
+.diff-close-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.diff-close-btn:hover {
+  opacity: 0.7;
+}
+.diff-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+.diff-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+}
+.diff-loading {
+  color: var(--accent);
+  font-size: 13px;
+}
+.diff-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+.diff-empty {
+  color: var(--dim);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Diff summary */
+.diff-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+.diff-summary-text {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+}
+.diff-summary-added {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--success);
+}
+.diff-summary-removed {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--danger);
+}
+
+/* Diff file blocks */
+.diff-file-block {
+  margin: 0 14px 8px;
+  border: 1px solid var(--border);
+}
+.diff-file-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: 40px;
+}
+.diff-file-header:disabled {
+  cursor: default;
+}
+.diff-file-header:hover:not(:disabled) {
+  background: var(--surface);
+}
+.diff-file-status {
+  font-size: 12px;
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.diff-file-status.added {
+  color: var(--success);
+}
+.diff-file-status.deleted {
+  color: var(--danger);
+}
+.diff-file-status.modified {
+  color: var(--warning);
+}
+.diff-file-path {
+  font-size: 12px;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-file-added {
+  font-size: 11px;
+  color: var(--success);
+  flex-shrink: 0;
+}
+.diff-file-removed {
+  font-size: 11px;
+  color: var(--danger);
+  flex-shrink: 0;
+}
+.diff-expand-icon {
+  font-size: 10px;
+  color: var(--dim);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Diff patch content */
+.diff-patch {
+  border-top: 1px solid var(--border);
+  padding: 10px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.diff-line {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre;
+}
+.diff-line.added {
+  color: var(--success);
+}
+.diff-line.removed {
+  color: var(--danger);
+}
+.diff-line.hunk {
+  color: var(--accent);
+}

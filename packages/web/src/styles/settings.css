@@ -1,0 +1,123 @@
+/* Settings page styles */
+
+.settings-page {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* Section */
+.settings-section {
+  margin-bottom: 16px;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  padding-left: 2px;
+}
+
+/* Card */
+.settings-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Rows */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  min-height: 40px;
+}
+.settings-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  flex: 1;
+}
+.settings-value {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 14px;
+}
+
+/* Status dot */
+.settings-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.settings-status-dot.ok {
+  background: var(--success);
+}
+.settings-status-dot.error {
+  background: var(--danger);
+}
+
+/* Toggle group */
+.settings-toggle-group {
+  display: flex;
+  gap: 8px;
+}
+.settings-toggle-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
+  transition: all 0.15s;
+}
+.settings-toggle-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.settings-toggle-btn:hover:not(.active) {
+  border-color: var(--dim);
+  color: var(--text);
+}
+
+/* Action buttons */
+.settings-action-btn {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.15s;
+}
+.settings-action-btn:hover {
+  opacity: 0.7;
+}
+.settings-action-btn.warning {
+  color: var(--warning);
+}
+.settings-action-btn.danger {
+  color: var(--danger);
+}

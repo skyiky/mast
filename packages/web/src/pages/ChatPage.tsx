@@ -11,6 +11,7 @@ import { useSettingsStore } from "../stores/settings.js";
 import { useApi } from "../hooks/useApi.js";
 import { MessageBubble } from "../components/MessageBubble.js";
 import { PermissionCard } from "../components/PermissionCard.js";
+import { SessionControls } from "../components/SessionControls.js";
 import type { ChatMessage } from "../lib/types.js";
 import "../styles/chat.css";
 
@@ -129,6 +130,12 @@ export function ChatPage() {
     [sessionId, api],
   );
 
+  // Re-fill input when revert restores the user's prompt
+  const handleRevertRestore = useCallback((text: string) => {
+    setInput(text);
+    inputRef.current?.focus();
+  }, []);
+
   if (!sessionId) {
     navigate("/");
     return null;
@@ -139,6 +146,14 @@ export function ChatPage() {
 
   return (
     <div className="chat-page">
+      {/* Header with session controls */}
+      <div className="chat-header">
+        <SessionControls
+          sessionId={sessionId}
+          onRevert={handleRevertRestore}
+        />
+      </div>
+
       {/* Message list */}
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 && (
