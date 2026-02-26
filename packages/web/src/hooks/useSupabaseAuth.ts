@@ -35,6 +35,8 @@ export function useSupabaseAuth(): void {
         }
         if (session?.access_token) {
           setApiToken(session.access_token);
+          // Supabase-authenticated users don't need the daemon pairing step
+          useConnectionStore.getState().setPaired(true);
           // In hosted mode, API lives at the same origin that served the page
           if (!serverUrl) {
             const origin = window.location.origin;
@@ -55,6 +57,7 @@ export function useSupabaseAuth(): void {
       const store = useConnectionStore.getState();
       if (session?.access_token) {
         store.setApiToken(session.access_token);
+        store.setPaired(true);
         if (!store.serverUrl) {
           store.setServerUrl(window.location.origin);
         }
