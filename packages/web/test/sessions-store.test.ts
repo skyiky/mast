@@ -29,6 +29,7 @@ describe("sessions store", () => {
       loadingSessions: false,
       activeSessionId: null,
       deletedSessionIds: [],
+      starredSessionIds: [],
     });
   });
 
@@ -87,6 +88,35 @@ describe("sessions store", () => {
       useSessionStore.getState().removeSession("s1");
       useSessionStore.getState().removeSession("s1"); // again
       assert.equal(useSessionStore.getState().deletedSessionIds.length, 1);
+    });
+
+    it("removeSession also removes from starredSessionIds", () => {
+      useSessionStore.getState().setSessions([
+        { id: "s1", title: "A", createdAt: "", updatedAt: "" },
+      ]);
+      useSessionStore.getState().toggleStarred("s1");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, ["s1"]);
+      useSessionStore.getState().removeSession("s1");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, []);
+    });
+
+    it("toggleStarred adds session ID to starredSessionIds", () => {
+      useSessionStore.getState().toggleStarred("s1");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, ["s1"]);
+    });
+
+    it("toggleStarred removes session ID when already starred", () => {
+      useSessionStore.getState().toggleStarred("s1");
+      useSessionStore.getState().toggleStarred("s1");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, []);
+    });
+
+    it("toggleStarred supports multiple starred sessions", () => {
+      useSessionStore.getState().toggleStarred("s1");
+      useSessionStore.getState().toggleStarred("s2");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, ["s1", "s2"]);
+      useSessionStore.getState().toggleStarred("s1");
+      assert.deepEqual(useSessionStore.getState().starredSessionIds, ["s2"]);
     });
   });
 

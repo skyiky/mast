@@ -58,13 +58,71 @@ export function filterSessionsByProject(
 // ---------------------------------------------------------------------------
 
 export interface SessionGroup {
-  /** Display label: "Today", "Yesterday", or a date string */
+  /** Display label: "Starred", "Idle", "Archived", or a date string */
   label: string;
-  /** Date key for sorting (YYYY-MM-DD) */
+  /** Sort key for ordering groups */
   dateKey: string;
   /** Sessions in this group, sorted newest first */
   sessions: Session[];
 }
+
+// ---------------------------------------------------------------------------
+// Status-based grouping (Starred / Idle / Archived)
+// ---------------------------------------------------------------------------
+
+/** Threshold for "idle" — sessions updated within this window are considered idle/active */
+const IDLE_THRESHOLD_MS = 2 * 3_600_000; // 2 hours
+
+/**
+ * Group sessions by status: Starred, Idle (recent), Archived (older).
+ *
+ * - Starred: sessions whose ID is in the starredIds set (always at top)
+ * - Idle: sessions updated within the last 2 hours OR with hasActivity flag
+ * - Archived: everything else
+ *
+ * Within each group, sessions are sorted newest first.
+ * Empty groups are omitted.
+ */
+export function groupSessionsByStatus(
+  sessions: Session[],
+  starredIds: Set<string>,
+): SessionGroup[] {
+  if (sessions.length === 0) return [];
+
+  const starred: Session[] = [];
+  const idle: Session[] = [];
+  const archived: Session[] = [];
+  const now = Date.now();
+
+  // Sort all sessions newest first
+  const sorted = [...sessions].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+
+  for (const s of sorted) {
+    if (starredIds.has(s.id)) {
+      starred.push(s);
+    } else {
+      const age = now - new Date(s.updatedAt).getTime();
+      if (age < IDLE_THRESHOLD_MS || s.hasActivity) {
+        idle.push(s);
+      } else {
+        archived.push(s);
+      }
+    }
+  }
+
+  const result: SessionGroup[] = [];
+  if (starred.length > 0) result.push({ label: "Starred", dateKey: "0-starred", sessions: starred });
+  if (idle.length > 0) result.push({ label: "Idle", dateKey: "1-idle", sessions: idle });
+  if (archived.length > 0) result.push({ label: "Archived", dateKey: "2-archived", sessions: archived });
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Day grouping (legacy, still used by tests)
+// ---------------------------------------------------------------------------
 
 /**
  * Group sessions by day (based on updatedAt), sorted newest day first.

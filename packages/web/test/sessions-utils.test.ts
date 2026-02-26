@@ -10,6 +10,7 @@ import {
   getUniqueProjects,
   filterSessionsByProject,
   groupSessionsByDay,
+  groupSessionsByStatus,
   mapRawSession,
   mapRawSessions,
 } from "../src/lib/sessions-utils.js";
@@ -303,5 +304,126 @@ describe("mapRawSessions", () => {
 
   it("returns empty array for empty input", () => {
     assert.deepEqual(mapRawSessions([]), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// groupSessionsByStatus
+// ---------------------------------------------------------------------------
+
+describe("groupSessionsByStatus", () => {
+  it("returns empty array for empty sessions", () => {
+    assert.deepEqual(groupSessionsByStatus([], new Set()), []);
+  });
+
+  it("puts recently-updated sessions (< 2h) in Idle group", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString(); // 30 min ago
+    const sessions = [makeSession({ id: "1", updatedAt: recent })];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].sessions.length, 1);
+  });
+
+  it("puts old sessions in Archived group", () => {
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString(); // 2 days ago
+    const sessions = [makeSession({ id: "1", updatedAt: old })];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].label, "Archived");
+  });
+
+  it("separates Idle and Archived sessions", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString();
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const sessions = [
+      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "old1", updatedAt: old }),
+      makeSession({ id: "idle2", updatedAt: recent }),
+    ];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].sessions.length, 2);
+    assert.equal(groups[1].label, "Archived");
+    assert.equal(groups[1].sessions.length, 1);
+  });
+
+  it("Idle group comes before Archived", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString();
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const sessions = [
+      makeSession({ id: "old1", updatedAt: old }),
+      makeSession({ id: "idle1", updatedAt: recent }),
+    ];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[1].label, "Archived");
+  });
+
+  it("sorts sessions within each group by updatedAt descending", () => {
+    const t1 = new Date(Date.now() - 10 * 60_000).toISOString(); // 10m ago
+    const t2 = new Date(Date.now() - 60 * 60_000).toISOString(); // 1h ago
+    const t3 = new Date(Date.now() - 90 * 60_000).toISOString(); // 1.5h ago
+    const sessions = [
+      makeSession({ id: "mid", updatedAt: t2 }),
+      makeSession({ id: "newest", updatedAt: t1 }),
+      makeSession({ id: "oldest", updatedAt: t3 }),
+    ];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups[0].sessions[0].id, "newest");
+    assert.equal(groups[0].sessions[1].id, "mid");
+    assert.equal(groups[0].sessions[2].id, "oldest");
+  });
+
+  it("starred sessions appear in Starred group at the top", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString();
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const sessions = [
+      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "starred1", updatedAt: old }),
+      makeSession({ id: "old1", updatedAt: old }),
+    ];
+    const starred = new Set(["starred1"]);
+    const groups = groupSessionsByStatus(sessions, starred);
+    assert.equal(groups[0].label, "Starred");
+    assert.equal(groups[0].sessions.length, 1);
+    assert.equal(groups[0].sessions[0].id, "starred1");
+  });
+
+  it("starred sessions are excluded from Idle and Archived groups", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString();
+    const sessions = [
+      makeSession({ id: "both", updatedAt: recent }),
+      makeSession({ id: "idle1", updatedAt: recent }),
+    ];
+    const starred = new Set(["both"]);
+    const groups = groupSessionsByStatus(sessions, starred);
+    // Starred group should have "both", Idle should only have "idle1"
+    const starredGroup = groups.find((g) => g.label === "Starred");
+    const idleGroup = groups.find((g) => g.label === "Idle");
+    assert.ok(starredGroup);
+    assert.equal(starredGroup.sessions.length, 1);
+    assert.equal(starredGroup.sessions[0].id, "both");
+    assert.ok(idleGroup);
+    assert.equal(idleGroup.sessions.length, 1);
+    assert.equal(idleGroup.sessions[0].id, "idle1");
+  });
+
+  it("omits empty groups", () => {
+    const recent = new Date(Date.now() - 30 * 60_000).toISOString();
+    const sessions = [makeSession({ id: "1", updatedAt: recent })];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    // Should only have Idle, no Starred or Archived
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].label, "Idle");
+  });
+
+  it("sessions with hasActivity flag are treated as Idle regardless of age", () => {
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const sessions = [makeSession({ id: "active-old", updatedAt: old, hasActivity: true })];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].sessions[0].id, "active-old");
   });
 });

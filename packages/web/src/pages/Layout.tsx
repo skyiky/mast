@@ -9,13 +9,14 @@
  * On mobile (< 768px), the sidebar becomes a slide-out overlay.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Outlet, Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConnectionStatus } from "../components/ConnectionStatus.js";
 import { SidebarSessionList } from "../components/SidebarSessionList.js";
 import { ErrorBoundary } from "../components/ErrorBoundary.js";
 import { useSessions } from "../hooks/useSessions.js";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.js";
+import { useSessionStore } from "../stores/sessions.js";
 import "../styles/layout.css";
 
 export function Layout() {
@@ -23,7 +24,12 @@ export function Layout() {
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const { sessions, loadingSessions, createSession } = useSessions();
+  const starredSessionIds = useSessionStore((s) => s.starredSessionIds);
+  const toggleStarred = useSessionStore((s) => s.toggleStarred);
+  const removeSession = useSessionStore((s) => s.removeSession);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const starredSet = useMemo(() => new Set(starredSessionIds), [starredSessionIds]);
 
   // Global keyboard shortcuts
   useKeyboardShortcuts();
@@ -96,7 +102,10 @@ export function Layout() {
           sessions={sessions}
           loading={loadingSessions}
           activeSessionId={activeSessionId}
+          starredIds={starredSet}
           onSelect={handleSelectSession}
+          onToggleStar={toggleStarred}
+          onDelete={removeSession}
         />
 
         {/* Footer: connection status */}

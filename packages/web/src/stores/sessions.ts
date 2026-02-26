@@ -25,12 +25,16 @@ interface SessionState {
    *  they stay hidden across page reloads even though the server still
    *  returns them in GET /sessions. */
   deletedSessionIds: string[];
+  /** Session IDs the user has starred/pinned. Persisted via localStorage. */
+  starredSessionIds: string[];
 
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
   /** Remove a session from the local list (e.g. user delete action). */
   removeSession: (sessionId: string) => void;
+  /** Toggle star/unstar on a session. */
+  toggleStarred: (sessionId: string) => void;
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   setActiveSessionId: (id: string | null) => void;
   setLoadingSessions: (loading: boolean) => void;
@@ -69,6 +73,7 @@ export const useSessionStore = create<SessionState>()(
       loadingSessions: false,
       activeSessionId: null,
       deletedSessionIds: [],
+      starredSessionIds: [],
 
       setSessions: (sessions) => set({ sessions }),
       addSession: (session) =>
@@ -83,11 +88,20 @@ export const useSessionStore = create<SessionState>()(
           deletedSessionIds: state.deletedSessionIds.includes(sessionId)
             ? state.deletedSessionIds
             : [...state.deletedSessionIds, sessionId],
+          // Also remove from starred if it was starred
+          starredSessionIds: state.starredSessionIds.filter((id) => id !== sessionId),
           // Also clean up messages for the deleted session
           messagesBySession: (() => {
             const { [sessionId]: _, ...rest } = state.messagesBySession;
             return rest;
           })(),
+        })),
+
+      toggleStarred: (sessionId) =>
+        set((state) => ({
+          starredSessionIds: state.starredSessionIds.includes(sessionId)
+            ? state.starredSessionIds.filter((id) => id !== sessionId)
+            : [...state.starredSessionIds, sessionId],
         })),
 
       setMessages: (sessionId, messages) =>
@@ -329,8 +343,11 @@ export const useSessionStore = create<SessionState>()(
     {
       name: "mast-deleted-sessions",
       // Zustand v5 defaults to localStorage — no storage option needed.
-      // Only persist the deleted session IDs — everything else is transient
-      partialize: (state) => ({ deletedSessionIds: state.deletedSessionIds }),
+      // Only persist the deleted + starred session IDs — everything else is transient
+      partialize: (state) => ({
+        deletedSessionIds: state.deletedSessionIds,
+        starredSessionIds: state.starredSessionIds,
+      }),
     },
   ),
 );
