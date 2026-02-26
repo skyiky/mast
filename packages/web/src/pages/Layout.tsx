@@ -106,6 +106,7 @@ export function Layout() {
           onSelect={handleSelectSession}
           onToggleStar={toggleStarred}
           onDelete={removeSession}
+          onNewSession={handleNewSession}
         />
 
         {/* Footer: connection status */}

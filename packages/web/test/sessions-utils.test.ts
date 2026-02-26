@@ -13,6 +13,7 @@ import {
   groupSessionsByStatus,
   mapRawSession,
   mapRawSessions,
+  formatProjectPath,
 } from "../src/lib/sessions-utils.js";
 import type { Session } from "../src/lib/types.js";
 
@@ -425,5 +426,54 @@ describe("groupSessionsByStatus", () => {
     const groups = groupSessionsByStatus(sessions, new Set());
     assert.equal(groups[0].label, "Idle");
     assert.equal(groups[0].sessions[0].id, "active-old");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatProjectPath
+// ---------------------------------------------------------------------------
+
+describe("formatProjectPath", () => {
+  it("returns project name when session has project field", () => {
+    const session = makeSession({ project: "my-project" });
+    assert.equal(formatProjectPath(session), "my-project");
+  });
+
+  it("returns last 2 path segments for Unix directory", () => {
+    const session = makeSession({ directory: "/home/user/my-project" });
+    assert.equal(formatProjectPath(session), "user/my-project");
+  });
+
+  it("returns last 2 path segments for Windows directory", () => {
+    const session = makeSession({ directory: "C:\\Users\\david\\my-project" });
+    assert.equal(formatProjectPath(session), "david/my-project");
+  });
+
+  it("returns single segment for shallow Unix path", () => {
+    const session = makeSession({ directory: "/project" });
+    assert.equal(formatProjectPath(session), "project");
+  });
+
+  it("returns null when session has no project and no directory", () => {
+    const session = makeSession({});
+    assert.equal(formatProjectPath(session), null);
+  });
+
+  it("prefers project field over directory", () => {
+    const session = makeSession({
+      project: "from-project",
+      directory: "/home/user/from-directory",
+    });
+    assert.equal(formatProjectPath(session), "from-project");
+  });
+
+  it("handles trailing slashes", () => {
+    const session = makeSession({ directory: "/home/user/my-project/" });
+    assert.equal(formatProjectPath(session), "user/my-project");
+  });
+
+  it("returns null for empty directory string", () => {
+    const session = makeSession({ directory: "" });
+    assert.equal(formatProjectPath(session), null);
   });
 });

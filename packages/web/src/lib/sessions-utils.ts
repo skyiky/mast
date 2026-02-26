@@ -197,6 +197,22 @@ function formatDateLabel(dateKey: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Format a session's project/directory into a short display path.
+ *
+ * Priority: session.project > last 2 segments of session.directory > null.
+ */
+export function formatProjectPath(session: Session): string | null {
+  if (session.project) return session.project;
+  if (!session.directory) return null;
+  // Show last 2 path segments: "user/project"
+  const parts = session.directory.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts.length >= 2
+    ? parts.slice(-2).join("/")
+    : parts[parts.length - 1] || null;
+}
+
+/**
  * Map a raw session object from the OpenCode REST API into our Session type.
  *
  * Handles the OpenCode format:

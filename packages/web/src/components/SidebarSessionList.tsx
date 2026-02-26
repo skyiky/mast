@@ -1,12 +1,12 @@
 /**
- * SidebarSessionList — compact session list for the sidebar.
+ * SidebarSessionList — session list for the sidebar.
  * Groups sessions by status: Starred, Idle, Archived.
- * Supports star/unstar and delete actions on each row.
+ * Each row shows title + project path (like Claude's Remote Control UI).
  */
 
 import { memo, useCallback } from "react";
 import type { Session } from "../lib/types.js";
-import { getTimeAgo, groupSessionsByStatus } from "../lib/sessions-utils.js";
+import { groupSessionsByStatus, formatProjectPath } from "../lib/sessions-utils.js";
 
 interface SidebarSessionListProps {
   sessions: Session[];
@@ -16,6 +16,7 @@ interface SidebarSessionListProps {
   onSelect: (sessionId: string) => void;
   onToggleStar: (sessionId: string) => void;
   onDelete: (sessionId: string) => void;
+  onNewSession: () => void;
 }
 
 function SidebarSessionListInner({
@@ -26,6 +27,7 @@ function SidebarSessionListInner({
   onSelect,
   onToggleStar,
   onDelete,
+  onNewSession,
 }: SidebarSessionListProps) {
   if (loading && sessions.length === 0) {
     return <div className="sidebar-sessions-empty">Loading...</div>;
@@ -34,7 +36,10 @@ function SidebarSessionListInner({
   if (sessions.length === 0) {
     return (
       <div className="sidebar-sessions-empty">
-        No sessions yet
+        <p>No sessions yet</p>
+        <button className="sidebar-new-session-btn" onClick={onNewSession}>
+          New session
+        </button>
       </div>
     );
   }
@@ -59,6 +64,13 @@ function SidebarSessionListInner({
           ))}
         </div>
       ))}
+
+      {/* Bottom "New session" button */}
+      <div className="sidebar-new-session-area">
+        <button className="sidebar-new-session-btn" onClick={onNewSession}>
+          New session
+        </button>
+      </div>
     </div>
   );
 }
@@ -87,7 +99,7 @@ function SidebarSessionRowInner({
   onToggleStar,
   onDelete,
 }: SidebarSessionRowProps) {
-  const timeAgo = getTimeAgo(session.updatedAt || session.createdAt);
+  const projectPath = formatProjectPath(session);
 
   const handleStar = useCallback(
     (e: React.MouseEvent) => {
@@ -111,6 +123,7 @@ function SidebarSessionRowInner({
       onClick={() => onSelect(session.id)}
       title={session.title || session.id}
     >
+      {/* Left: star + text block */}
       <span
         className={`sidebar-session-star ${starred ? "starred" : ""}`}
         onClick={handleStar}
@@ -118,10 +131,17 @@ function SidebarSessionRowInner({
       >
         {starred ? "\u2605" : "\u2606"}
       </span>
-      <span className="sidebar-session-title">
-        {session.title || `${session.id.slice(0, 12)}...`}
+
+      <span className="sidebar-session-info">
+        <span className="sidebar-session-title">
+          {session.title || `${session.id.slice(0, 12)}...`}
+        </span>
+        {projectPath && (
+          <span className="sidebar-session-project">{projectPath}</span>
+        )}
       </span>
-      <span className="sidebar-session-time">{timeAgo}</span>
+
+      {/* Right: actions + chevron */}
       <span
         className="sidebar-session-delete"
         onClick={handleDelete}
@@ -129,6 +149,7 @@ function SidebarSessionRowInner({
       >
         &times;
       </span>
+      <span className="sidebar-session-chevron">{"\u203A"}</span>
     </button>
   );
 }

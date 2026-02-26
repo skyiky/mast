@@ -101,8 +101,11 @@
 .sidebar-sessions-empty {
   padding: 24px 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
+}
+.sidebar-sessions-empty p {
+  margin: 0 0 16px;
 }
 
 .sidebar-session-group {
@@ -110,30 +113,29 @@
 }
 
 .sidebar-group-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--dim);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 10px 16px 4px;
+  padding: 12px 16px 4px;
 }
 
 .sidebar-session-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 16px;
+  padding: 10px 16px;
   background: none;
   border: none;
   border-radius: 0;
   color: inherit;
   font: inherit;
-  font-size: 13px;
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
-  min-height: 36px;
+  min-height: 48px;
   position: relative;
 }
 .sidebar-session-row:hover {
@@ -147,14 +149,15 @@
 
 /* Star icon */
 .sidebar-session-star {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--dim);
   flex-shrink: 0;
-  width: 16px;
+  width: 18px;
   text-align: center;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
   cursor: pointer;
+  align-self: center;
 }
 .sidebar-session-star.starred {
   opacity: 1;
@@ -167,25 +170,36 @@
   color: #f5a623;
 }
 
-.sidebar-session-title {
+/* Two-line info block: title + project path */
+.sidebar-session-info {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-session-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 .sidebar-session-row.active .sidebar-session-title {
   color: var(--bright);
 }
 
-.sidebar-session-time {
-  font-size: 10px;
+.sidebar-session-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
   color: var(--dim);
-  flex-shrink: 0;
 }
 
-/* Delete button */
+/* Delete button (hover reveal) */
 .sidebar-session-delete {
   font-size: 14px;
   color: var(--dim);
@@ -202,6 +216,44 @@
 }
 .sidebar-session-delete:hover {
   color: var(--error, #e55);
+}
+
+/* Chevron indicator (right side) */
+.sidebar-session-chevron {
+  font-size: 16px;
+  color: var(--dim);
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+.sidebar-session-row:hover .sidebar-session-chevron {
+  opacity: 1;
+}
+
+/* "New session" button at bottom of session list */
+.sidebar-new-session-area {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar-new-session-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sidebar-new-session-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
 }
 
 /* ------------------------------------------------------------------ */
