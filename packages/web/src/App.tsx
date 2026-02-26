@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useConnectionStore } from "./stores/connection.js";
 import { Layout } from "./pages/Layout.js";
@@ -8,29 +7,18 @@ import { SessionsPage } from "./pages/SessionsPage.js";
 import { ChatPage } from "./pages/ChatPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
-import { detectLocalMode } from "./lib/local-mode.js";
 
 export function App() {
   const apiToken = useConnectionStore((s) => s.apiToken);
   const paired = useConnectionStore((s) => s.paired);
-
-  // Auto-connect in local mode (served from localhost)
-  useEffect(() => {
-    const store = useConnectionStore.getState();
-    // Only auto-connect if not already configured
-    if (store.apiToken) return;
-
-    const result = detectLocalMode(window.location.origin);
-    if (result.isLocal) {
-      store.setServerUrl(result.serverUrl);
-      store.setApiToken(result.apiToken);
-      store.setAuthReady(true);
-      store.setPaired(true);
-    }
-  }, []);
+  const hydrated = useConnectionStore((s) => s._hydrated);
 
   // Connect WebSocket when authenticated + paired
   useWebSocket();
+
+  // Wait for persist rehydration before deciding which page to show.
+  // Auto-connect for local mode runs inside onRehydrateStorage (connection store).
+  if (!hydrated) return null;
 
   // Auth guard: no token → login, no pairing → pair
   if (!apiToken) return <LoginPage />;
