@@ -7,12 +7,14 @@
 import { memo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../stores/sessions.js";
+import { useConnectionStore } from "../stores/connection.js";
 import { useSessions } from "../hooks/useSessions.js";
 import {
   groupSessionsByStatus,
   filterSessionsByProject,
   formatSessionTime,
 } from "../lib/sessions-utils.js";
+import { ConnectAgentPanel } from "../components/ConnectAgentPanel.js";
 import type { Session } from "../lib/types.js";
 
 export function SessionListPage() {
@@ -22,6 +24,11 @@ export function SessionListPage() {
   const starredIds = useSessionStore((s) => s.starredSessionIds);
   const toggleStarred = useSessionStore((s) => s.toggleStarred);
   const removeSession = useSessionStore((s) => s.removeSession);
+  const daemonConnected = useConnectionStore((s) => s.daemonConnected);
+  const serverUrl = useConnectionStore((s) => s.serverUrl);
+
+  // Detect hosted mode: not on localhost
+  const isHosted = !!serverUrl && !isLocalUrl(serverUrl);
 
   const filtered = filterSessionsByProject(sessions, selectedProject);
   const starredSet = new Set(starredIds);
@@ -58,10 +65,16 @@ export function SessionListPage() {
 
       {filtered.length === 0 ? (
         <div className="session-list-empty">
-          <p>No sessions{selectedProject ? ` for ${selectedProject}` : ""}</p>
-          <button className="session-list-new-btn" onClick={handleNewSession}>
-            New session
-          </button>
+          {isHosted && !daemonConnected ? (
+            <ConnectAgentPanel />
+          ) : (
+            <>
+              <p>No sessions{selectedProject ? ` for ${selectedProject}` : ""}</p>
+              <button className="session-list-new-btn" onClick={handleNewSession}>
+                New session
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="session-list-content">
@@ -166,3 +179,16 @@ function SessionRowInner({
 
 const SessionRow = memo(SessionRowInner);
 SessionRow.displayName = "SessionRow";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isLocalUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}

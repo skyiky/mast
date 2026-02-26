@@ -10,12 +10,8 @@
  * 6. Start health monitoring for all projects
  */
 
-import WebSocket from "ws";
 import QRCode from "qrcode";
 import {
-  generatePairingCode,
-  type PairRequest,
-  type PairResponse,
   type EventMessage,
   type DaemonStatus,
 } from "@mast/shared";
@@ -23,6 +19,7 @@ import { Relay, AuthError } from "./relay.js";
 import { KeyStore } from "./key-store.js";
 import { ProjectConfig } from "./project-config.js";
 import { ProjectManager } from "./project-manager.js";
+import { runPairingFlow } from "./pairing-flow.js";
 
 const ORCHESTRATOR_URL =
   process.env.MAST_ORCHESTRATOR_URL ?? "ws://localhost:3000";
@@ -123,7 +120,9 @@ async function main() {
     console.log(`[daemon] Loaded device key from ${keyStore.file}`);
   } else {
     console.log("[daemon] No device key found — starting pairing flow");
-    deviceKey = await runPairingFlow(ORCHESTRATOR_URL);
+    deviceKey = await runPairingFlow(ORCHESTRATOR_URL, {
+      onDisplayCode: (code, qrPayload) => displayPairingCode(code, qrPayload, "[daemon]"),
+    });
     await keyStore.save(deviceKey);
     console.log(`[daemon] Device key saved to ${keyStore.file}`);
   }
@@ -142,7 +141,9 @@ async function main() {
       );
       await keyStore.clear();
 
-      const newKey = await runPairingFlow(ORCHESTRATOR_URL);
+      const newKey = await runPairingFlow(ORCHESTRATOR_URL, {
+        onDisplayCode: (code, qrPayload) => displayPairingCode(code, qrPayload, "[daemon]"),
+      });
       await keyStore.save(newKey);
       console.log(`[daemon] New device key saved to ${keyStore.file}`);
 
@@ -172,85 +173,28 @@ async function main() {
 }
 
 /**
- * Pairing flow: connect with token=pairing, send pair_request with
- * a 6-digit code, wait for pair_response containing the device key.
+ * Display the pairing code and QR code in the terminal.
  */
-function runPairingFlow(orchestratorUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const wsUrl = `${orchestratorUrl}/daemon?token=pairing`;
-    const ws = new WebSocket(wsUrl);
-    const code = generatePairingCode();
+function displayPairingCode(code: string, qrPayload: string, prefix: string): void {
+  console.log("");
+  console.log("=========================================");
+  console.log(`  PAIRING CODE:  ${code}`);
+  console.log("  Enter this code on your phone to pair.");
+  console.log("=========================================");
 
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("Pairing timed out after 5 minutes"));
-    }, 5 * 60 * 1000);
-
-    ws.on("open", () => {
-      // Send pairing request
-      const request: PairRequest = {
-        type: "pair_request",
-        pairingCode: code,
-      };
-      ws.send(JSON.stringify(request));
-
-      // Build QR payload — the mobile app scans this to auto-pair
-      const httpUrl = orchestratorUrl.replace(/^ws/, "http");
-      const qrPayload = JSON.stringify({ url: httpUrl, code });
-
+  // Display QR code in terminal (async, non-blocking)
+  QRCode.toString(qrPayload, { type: "terminal", small: true })
+    .then((qrString: string) => {
       console.log("");
-      console.log("=========================================");
-      console.log(`  PAIRING CODE:  ${code}`);
-      console.log("  Enter this code on your phone to pair.");
-      console.log("=========================================");
-
-      // Display QR code in terminal (async, non-blocking)
-      QRCode.toString(qrPayload, { type: "terminal", small: true })
-        .then((qrString: string) => {
-          console.log("");
-          console.log("  Or scan this QR code with the Mast app:");
-          console.log("");
-          console.log(qrString);
-        })
-        .catch(() => {
-          // QR code display is optional — code entry still works
-          console.log("  (QR code display unavailable)");
-        });
-
+      console.log("  Or scan this QR code with the Mast app:");
       console.log("");
+      console.log(qrString);
+    })
+    .catch(() => {
+      console.log("  (QR code display unavailable)");
     });
 
-    ws.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data.toString()) as PairResponse;
-        if (msg.type === "pair_response") {
-          clearTimeout(timeout);
-          if (msg.success && msg.deviceKey) {
-            console.log("[daemon] Pairing successful!");
-            ws.close();
-            resolve(msg.deviceKey);
-          } else {
-            ws.close();
-            reject(
-              new Error(`Pairing failed: ${msg.error ?? "unknown error"}`),
-            );
-          }
-        }
-      } catch (err) {
-        console.error("[daemon] Error parsing pairing message:", err);
-      }
-    });
-
-    ws.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(new Error(`Pairing connection failed: ${err.message}`));
-    });
-
-    ws.on("close", () => {
-      clearTimeout(timeout);
-      // If we get here without resolving, the connection was dropped
-    });
-  });
+  console.log("");
 }
 
 main().catch((err) => {

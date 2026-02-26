@@ -1,0 +1,152 @@
+/* Connect Agent panel — shown in hosted mode when no daemon is connected */
+
+.connect-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.connect-agent-icon {
+  font-size: 32px;
+  color: var(--accent);
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.connect-agent-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--bright);
+  margin: 0;
+}
+
+.connect-agent-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.connect-agent-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.connect-agent-code {
+  flex: 1;
+  font-size: 12px;
+  color: var(--accent);
+  word-break: break-all;
+  font-family: var(--font);
+  line-height: 1.4;
+}
+
+.connect-agent-copy {
+  flex-shrink: 0;
+  background: var(--border);
+  color: var(--text);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.connect-agent-copy:hover {
+  background: var(--dim);
+}
+
+.connect-agent-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+.connect-agent-divider::before,
+.connect-agent-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.connect-agent-divider span {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.connect-agent-pair {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.connect-agent-input {
+  flex: 1;
+  text-align: center;
+  font-size: 18px;
+  letter-spacing: 6px;
+  font-weight: 600;
+  font-family: var(--font);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--bright);
+  padding: 10px 16px;
+}
+.connect-agent-input::placeholder {
+  color: var(--dim);
+  letter-spacing: 6px;
+}
+.connect-agent-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.connect-agent-verify {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.connect-agent-verify:hover {
+  opacity: 0.9;
+}
+.connect-agent-verify:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.connect-agent-error {
+  font-size: 13px;
+  color: var(--danger);
+  margin: 0;
+}
+
+.connect-agent-success {
+  font-size: 13px;
+  color: var(--success);
+  margin: 0;
+}

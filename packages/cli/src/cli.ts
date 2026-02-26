@@ -17,8 +17,9 @@ import { startCli } from "./runner.js";
 import { startServer } from "@mast/orchestrator/server";
 import { ProjectConfig } from "@mast/daemon/project-config";
 import { ProjectManager } from "@mast/daemon/project-manager";
-import { Relay } from "@mast/daemon/relay";
+import { Relay, AuthError } from "@mast/daemon/relay";
 import { KeyStore } from "@mast/daemon/key-store";
+import { runPairingFlow } from "@mast/daemon/pairing-flow";
 import type { DaemonStatus, EventMessage } from "@mast/shared";
 import type { DetectedProject } from "./auto-detect.js";
 
@@ -145,7 +146,7 @@ async function createDaemon(opts: {
   console.log(`[mast] Project "${project.name}" started`);
 
   // In embedded mode, skip KeyStore — the in-process orchestrator uses HARDCODED_DEVICE_KEY.
-  // In external mode, load the paired device key from ~/.mast/device-key.json.
+  // In external mode, load the paired device key or run pairing flow.
   let deviceKey: string | undefined;
   if (embedded) {
     console.log("[mast] Embedded mode — using default device key");
@@ -153,7 +154,19 @@ async function createDaemon(opts: {
     const keyStore = new KeyStore();
     deviceKey = await keyStore.load();
     if (!deviceKey) {
-      console.log("[mast] No device key found — using default key (pair via daemon for production)");
+      console.log("[mast] No device key found — starting pairing flow");
+      deviceKey = await runPairingFlow(orchestratorUrl, {
+        onDisplayCode: (code, _qrPayload) => {
+          console.log("");
+          console.log("=========================================");
+          console.log(`  PAIRING CODE:  ${code}`);
+          console.log("  Enter this code in the web UI to pair.");
+          console.log("=========================================");
+          console.log("");
+        },
+      });
+      await keyStore.save(deviceKey);
+      console.log("[mast] Device key saved — paired successfully");
     }
   }
 
@@ -165,8 +178,34 @@ async function createDaemon(opts: {
     relay.startHealthMonitoring();
     console.log(`[mast] Connected to orchestrator`);
   } catch (err) {
-    console.warn(`[mast] Could not connect to orchestrator: ${(err as Error).message}`);
-    console.warn(`[mast] Running in standalone mode (OpenCode still accessible on port ${port})`);
+    if (!embedded && err instanceof AuthError) {
+      // Device key rejected — clear it and re-pair
+      console.warn(`[mast] Device key rejected — clearing and re-pairing`);
+      const keyStore = new KeyStore();
+      await keyStore.clear();
+
+      const newKey = await runPairingFlow(orchestratorUrl, {
+        onDisplayCode: (code, _qrPayload) => {
+          console.log("");
+          console.log("=========================================");
+          console.log(`  PAIRING CODE:  ${code}`);
+          console.log("  Enter this code in the web UI to pair.");
+          console.log("=========================================");
+          console.log("");
+        },
+      });
+      await keyStore.save(newKey);
+      console.log("[mast] Device key saved — paired successfully");
+
+      // Reconnect with the fresh key
+      relay = new Relay(orchestratorUrl, projectManager, newKey);
+      await relay.connect();
+      relay.startHealthMonitoring();
+      console.log(`[mast] Connected to orchestrator`);
+    } else {
+      console.warn(`[mast] Could not connect to orchestrator: ${(err as Error).message}`);
+      console.warn(`[mast] Running in standalone mode (OpenCode still accessible on port ${port})`);
+    }
   }
 
   return {

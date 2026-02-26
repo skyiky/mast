@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSessionStore } from "../stores/sessions.js";
+import { useConnectionStore } from "../stores/connection.js";
 import { useApi } from "./useApi.js";
 import { mapRawSessions } from "../lib/sessions-utils.js";
 
@@ -15,10 +16,11 @@ export function useSessions() {
   const setSessions = useSessionStore((s) => s.setSessions);
   const setLoadingSessions = useSessionStore((s) => s.setLoadingSessions);
   const loadingSessions = useSessionStore((s) => s.loadingSessions);
+  const daemonConnected = useConnectionStore((s) => s.daemonConnected);
 
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch sessions on mount
+  // Fetch sessions on mount and when daemon connects
   useEffect(() => {
     let cancelled = false;
 
@@ -42,7 +44,7 @@ export function useSessions() {
 
     load();
     return () => { cancelled = true; };
-  }, [api, setSessions, setLoadingSessions]);
+  }, [api, setSessions, setLoadingSessions, daemonConnected]);
 
   // Filter out deleted sessions
   const visible = sessions.filter((s) => !deletedSessionIds.includes(s.id));
