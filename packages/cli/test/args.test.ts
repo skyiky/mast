@@ -22,7 +22,7 @@ describe("parseCliArgs", () => {
     assert.equal(config.directory, process.cwd());
     assert.equal(config.port, 4096);
     assert.equal(config.sandbox, false);
-    assert.equal(config.orchestratorUrl, "ws://localhost:3000");
+    assert.equal(config.orchestratorUrl, "");
   });
 
   // ===========================================================================

@@ -18,7 +18,7 @@ export interface CliConfig {
 }
 
 const DEFAULT_PORT = 4096;
-const DEFAULT_ORCHESTRATOR = "ws://localhost:3000";
+const DEFAULT_ORCHESTRATOR = "";
 
 export function parseCliArgs(argv: string[]): CliConfig {
   // Check for "attach" subcommand first (before parseArgs, since parseArgs

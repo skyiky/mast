@@ -23,6 +23,11 @@ export interface CliDeps {
     port: number;
     orchestratorUrl: string;
   }) => Promise<{ shutdown: () => Promise<void> }>;
+  /** Start the embedded orchestrator — returns port and shutdown */
+  startOrchestrator: (opts: {
+    port: number;
+    webDistPath?: string;
+  }) => Promise<{ port: number; shutdown: () => Promise<void> }>;
   /** Get the config directory (default ~/.mast) */
   configDir: string;
   /** Package version for --version output */
@@ -48,7 +53,7 @@ Commands:
 
 Options:
   --port <number>             OpenCode port (default: 4096)
-  --orchestrator <url>        Orchestrator WebSocket URL (default: ws://localhost:3000)
+  --orchestrator <url>        Connect to external orchestrator (default: embedded)
   --sandbox                   Enable sandbox mode
   -h, --help                  Show this help text
   -v, --version               Show version
@@ -89,20 +94,36 @@ export async function startCli(
     deps.log(`[mast] Found existing project: ${project.name}`);
   }
 
-  // 2. Start daemon
+  // 2. Start embedded orchestrator (if no external URL provided)
+  let orchestratorUrl = config.orchestratorUrl;
+  let orchestratorShutdown: (() => Promise<void>) | undefined;
+
+  if (!orchestratorUrl) {
+    // Embedded mode — start orchestrator in-process
+    deps.log("[mast] Starting orchestrator...");
+    const orchestrator = await deps.startOrchestrator({ port: 3000 });
+    orchestratorUrl = `ws://localhost:${orchestrator.port}`;
+    orchestratorShutdown = orchestrator.shutdown;
+    deps.log(`[mast] Web UI: http://localhost:${orchestrator.port}`);
+  }
+
+  // 3. Start daemon
   deps.log(`[mast] Starting ${project.name} on port ${config.port}...`);
   const daemon = await deps.startDaemon({
     project,
     port: config.port,
-    orchestratorUrl: config.orchestratorUrl,
+    orchestratorUrl,
   });
 
   deps.log(`[mast] ${project.name} is running`);
-  deps.log(`[mast] Orchestrator: ${config.orchestratorUrl}`);
+  deps.log(`[mast] Orchestrator: ${orchestratorUrl}`);
 
   return {
     action: "started",
     project,
-    shutdown: daemon.shutdown,
+    shutdown: async () => {
+      await daemon.shutdown();
+      if (orchestratorShutdown) await orchestratorShutdown();
+    },
   };
 }

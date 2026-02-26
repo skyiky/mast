@@ -35,6 +35,10 @@ function makeFakeDeps(overrides?: Partial<CliDeps>): CliDeps & { logs: string[];
         shutdown: async () => { state.daemonStopped = true; },
       };
     },
+    startOrchestrator: async (opts: any) => ({
+      port: opts.port ?? 3000,
+      shutdown: async () => {},
+    }),
     configDir: "/tmp/test-mast",
     version: "0.0.1-test",
     ...overrides,
@@ -51,7 +55,7 @@ function makeConfig(overrides?: Partial<CliConfig>): CliConfig {
     command: "start",
     directory: "/tmp/my-project",
     port: 4096,
-    orchestratorUrl: "ws://localhost:3000",
+    orchestratorUrl: "",
     sandbox: false,
     ...overrides,
   };
@@ -187,5 +191,103 @@ describe("startCli", () => {
 
     await result.shutdown();
     assert.equal(deps.daemonStopped, true);
+  });
+});
+
+// =============================================================================
+// Embedded orchestrator
+// =============================================================================
+
+describe("embedded orchestrator", () => {
+  it("starts orchestrator when orchestratorUrl is empty", async () => {
+    let orchestratorStarted = false;
+    let orchestratorPort: number | undefined;
+
+    const deps = makeFakeDeps({
+      startOrchestrator: async (opts) => {
+        orchestratorStarted = true;
+        orchestratorPort = opts.port;
+        return {
+          port: opts.port,
+          shutdown: async () => {},
+        };
+      },
+    });
+    const config = makeConfig({ orchestratorUrl: "" }); // empty = embedded
+
+    const result = await startCli(config, deps);
+
+    assert.equal(orchestratorStarted, true);
+    assert.equal(result.action, "started");
+  });
+
+  it("passes orchestrator port to daemon as ws URL", async () => {
+    let capturedDaemonOpts: any = null;
+
+    const deps = makeFakeDeps({
+      startOrchestrator: async (opts) => ({
+        port: 3456,
+        shutdown: async () => {},
+      }),
+      startDaemon: async (opts) => {
+        capturedDaemonOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({ orchestratorUrl: "" });
+
+    await startCli(config, deps);
+
+    assert.ok(capturedDaemonOpts);
+    assert.equal(capturedDaemonOpts.orchestratorUrl, "ws://localhost:3456");
+  });
+
+  it("does NOT start orchestrator when orchestratorUrl is provided", async () => {
+    let orchestratorStarted = false;
+
+    const deps = makeFakeDeps({
+      startOrchestrator: async () => {
+        orchestratorStarted = true;
+        return { port: 3000, shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({ orchestratorUrl: "ws://remote:3000" });
+
+    await startCli(config, deps);
+
+    assert.equal(orchestratorStarted, false);
+  });
+
+  it("shuts down orchestrator on cleanup", async () => {
+    let orchestratorStopped = false;
+
+    const deps = makeFakeDeps({
+      startOrchestrator: async () => ({
+        port: 3000,
+        shutdown: async () => { orchestratorStopped = true; },
+      }),
+    });
+    const config = makeConfig({ orchestratorUrl: "" });
+
+    const result = await startCli(config, deps);
+    assert.ok(result.shutdown);
+    await result.shutdown();
+
+    assert.equal(orchestratorStopped, true);
+  });
+
+  it("logs the web UI URL when embedded", async () => {
+    const deps = makeFakeDeps({
+      startOrchestrator: async () => ({
+        port: 3000,
+        shutdown: async () => {},
+      }),
+    });
+    const config = makeConfig({ orchestratorUrl: "" });
+
+    await startCli(config, deps);
+
+    const output = deps.logs.join("\n");
+    assert.ok(output.includes("http://localhost:3000"), `Expected web UI URL in output, got: ${output}`);
   });
 });

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { parseCliArgs } from "./args.js";
 import { autoDetect } from "./auto-detect.js";
 import { startCli } from "./runner.js";
+import { startServer } from "@mast/orchestrator/server";
 import { ProjectConfig } from "@mast/daemon/project-config";
 import { ProjectManager } from "@mast/daemon/project-manager";
 import { Relay } from "@mast/daemon/relay";
@@ -34,6 +35,16 @@ async function main() {
     version: VERSION,
     configDir: CONFIG_DIR,
     autoDetect,
+    startOrchestrator: async (opts) => {
+      const handle = await startServer(opts.port, {
+        devMode: true,
+        webDistPath: opts.webDistPath,
+      });
+      return {
+        port: handle.port,
+        shutdown: handle.close,
+      };
+    },
     startDaemon: async (opts) => {
       return createDaemon(opts);
     },
