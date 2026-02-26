@@ -1,0 +1,19 @@
+:root {
+  --bg: #0A0A0A;
+  --surface: #141414;
+  --border: #262626;
+  --dim: #525252;
+  --muted: #737373;
+  --text: #D4D4D4;
+  --bright: #FAFAFA;
+  --accent: #22D3EE;
+  --accent-dim: #164E63;
+  --success: #22C55E;
+  --success-dim: #166534;
+  --warning: #F59E0B;
+  --warning-dim: #78350F;
+  --danger: #EF4444;
+  --danger-dim: #7F1D1D;
+  --font: "JetBrains Mono", monospace;
+  --radius: 8px;
+}
