@@ -31,22 +31,18 @@ Claude RC is a single command: `claude remote-control`. Mast requires installing
 - `@mast/cli` package — `npx mast` starts everything with zero config
 - Auto-detects current directory as project, creates `~/.mast/projects.json` on first run
 - Supports positional directory arg, `--port`, `--orchestrator`, `--sandbox` flags
-- `mast attach <url>` subcommand (placeholder for Feature 3)
+- `mast attach <url>` subcommand (placeholder, Feature 3 skipped)
 - esbuild-bundled single-file binary (`dist/cli.mjs`) with only `ws` as runtime dependency
 - 32 tests (args parsing, auto-detect, runner) all using Node.js built-in test runner
 
 ### 3. Mid-Session Attach
 
-**Priority:** High
-**Status:** Not started
+**Priority:** Low
+**Status:** Skipped
 
 Claude RC lets you run `/remote-control` inside an already-running conversation to make it remote. Mast's daemon must be running from the start — you can't retroactively make an existing OpenCode session remotely accessible.
 
-**Scope:**
-- Daemon discovers already-running OpenCode instances (scan known ports or query a registry)
-- Attach to an existing OpenCode session by ID without restarting the process
-- Backfill conversation history from the running session into the orchestrator's session store
-- Phone immediately sees full context of the in-progress session after attach
+**Decision:** Skipped. Since `npx mast` already spawns OpenCode and connects the daemon, the normal workflow never needs mid-session attach. The only scenarios (forgot to use Mast, someone else started OpenCode, opt-in per-session) are edge cases not worth the complexity. Can revisit if user demand materializes.
 
 ### 4. MCP Server Passthrough
 
@@ -64,17 +60,12 @@ Claude RC explicitly states that MCP servers configured in the project stay avai
 
 ### 5. Sandboxing Mode
 
-**Priority:** Medium
-**Status:** Not started
+**Priority:** Low
+**Status:** Skipped
 
 Claude RC offers `--sandbox` / `--no-sandbox` flags for filesystem and network isolation during remote sessions. Mast has no equivalent — the agent runs with full access to the dev machine.
 
-**Scope:**
-- Add `--sandbox` flag to daemon startup
-- Filesystem isolation: restrict OpenCode's working directory to the project root (no escape to `~` or `/`)
-- Network isolation: optional firewall rules or proxy to limit outbound network access from the agent
-- Surface sandbox status in phone UI (badge or banner showing "sandboxed" mode)
-- Configurable per-project in `projects.json`
+**Decision:** Skipped. OpenCode has no built-in sandbox flags (`opencode serve --help` shows only `--port`, `--hostname`, `--mdns`, `--cors`), so Mast would need to implement OS-level isolation itself — significant complexity for unclear user demand. Can revisit if needed.
 
 ### 6. Enable Remote Control for All Sessions Toggle
 
