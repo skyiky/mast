@@ -14,6 +14,7 @@ import { MessageBubble } from "../components/MessageBubble.js";
 import { PermissionCard } from "../components/PermissionCard.js";
 import { SessionControls } from "../components/SessionControls.js";
 import type { ChatMessage } from "../lib/types.js";
+import { mapApiMessages } from "../lib/types.js";
 import "../styles/chat.css";
 
 /** Stable empty array — avoids infinite re-render loop with useSyncExternalStore
@@ -56,16 +57,7 @@ export function ChatPage() {
       const res = await api.messages(sessionId!);
       if (cancelled) return;
       if (res.status === 200 && Array.isArray(res.body)) {
-        const mapped: ChatMessage[] = res.body.map((m) => ({
-          id: m.id,
-          role: (m.role as "user" | "assistant") || "assistant",
-          parts: (m.parts ?? []).map((p) => ({
-            type: (p.type as ChatMessage["parts"][0]["type"]) || "text",
-            content: p.content ?? "",
-          })),
-          streaming: m.streaming ?? false,
-          createdAt: m.createdAt ?? new Date().toISOString(),
-        }));
+        const mapped = mapApiMessages(res.body);
         setMessages(sessionId!, mapped);
       }
     }

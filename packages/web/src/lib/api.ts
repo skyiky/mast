@@ -68,7 +68,7 @@ export async function fetchMessages(config: ApiConfig, sessionId: string) {
   return request<Array<{
     id: string;
     role: string;
-    parts?: Array<{ type: string; content?: string }>;
+    parts?: Array<{ type: string; content?: string; text?: string; toolName?: string; toolArgs?: string; callID?: string; tool?: string; state?: Record<string, unknown> }>;
     streaming?: boolean;
     createdAt?: string;
   }>>(config, "GET", `/sessions/${sessionId}/messages`);

@@ -49,3 +49,55 @@ export interface PermissionRequest {
   status: "pending" | "approved" | "denied";
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// API → ChatMessage mapping
+// ---------------------------------------------------------------------------
+
+/** Raw part shape from OpenCode REST API / orchestrator cache. */
+export interface RawApiPart {
+  type: string;
+  content?: string;
+  text?: string;
+  toolName?: string;
+  tool?: string;
+  toolArgs?: string;
+  callID?: string;
+  state?: Record<string, unknown>;
+}
+
+/** Raw message shape from OpenCode REST API. */
+export interface RawApiMessage {
+  id: string;
+  role: string;
+  parts?: RawApiPart[];
+  streaming?: boolean;
+  createdAt?: string;
+}
+
+/** Map raw API messages to ChatMessage[]. Handles field-name differences
+ *  between OpenCode wire format (`text`, `tool`, `state`) and our internal types. */
+export function mapApiMessages(raw: RawApiMessage[]): ChatMessage[] {
+  return raw.map((m) => ({
+    id: m.id,
+    role: (m.role as "user" | "assistant") || "assistant",
+    parts: (m.parts ?? []).map(mapApiPart),
+    streaming: m.streaming ?? false,
+    createdAt: m.createdAt ?? new Date().toISOString(),
+  }));
+}
+
+function mapApiPart(p: RawApiPart): MessagePart {
+  const type = p.type === "tool" ? "tool-invocation" : (p.type as MessagePart["type"]) || "text";
+  const content = p.text ?? p.content ?? "";
+  const part: MessagePart = { type, content };
+  if (p.toolName ?? p.tool) part.toolName = p.toolName ?? p.tool;
+  if (p.toolArgs) part.toolArgs = p.toolArgs;
+  if (p.callID) part.callID = p.callID;
+  if (p.state) {
+    if (p.state.input && !part.toolArgs) part.toolArgs = typeof p.state.input === "string" ? p.state.input : JSON.stringify(p.state.input);
+    if (p.state.output) part.content = String(p.state.output);
+    if (p.state.error) part.content = String(p.state.error);
+  }
+  return part;
+}
