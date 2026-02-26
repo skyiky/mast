@@ -29,11 +29,14 @@ Claude RC is a single command: `claude remote-control`. Mast requires installing
 
 **Implemented:**
 - `@mast/cli` package — `npx mast` starts everything with zero config
+- **Single-command experience:** `npx mast` starts orchestrator + daemon + OpenCode in one process
+- Orchestrator serves web UI at `http://localhost:3000` — no separate process needed
+- Web client auto-connects in local mode (no login/pairing screens)
 - Auto-detects current directory as project, creates `~/.mast/projects.json` on first run
-- Supports positional directory arg, `--port`, `--orchestrator`, `--sandbox` flags
+- Supports positional directory arg, `--port`, `--orchestrator <url>` (external mode), `--sandbox` flags
 - `mast attach <url>` subcommand (placeholder, Feature 3 skipped)
-- esbuild-bundled single-file binary (`dist/cli.mjs`) with only `ws` as runtime dependency
-- 32 tests (args parsing, auto-detect, runner) all using Node.js built-in test runner
+- esbuild-bundled single-file binary (`dist/cli.mjs`) with `ws` and `@supabase/supabase-js` as runtime externals
+- 37 tests (args parsing, auto-detect, runner, embedded orchestrator) all using Node.js built-in test runner
 
 ### 3. Mid-Session Attach
 

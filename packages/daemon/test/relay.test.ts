@@ -433,7 +433,7 @@ describe("Relay routing: /session/:id/*", () => {
     assert.equal(res.status, 204);
   });
 
-  it("returns 404 for unknown session ID", async () => {
+  it("returns 404 for unknown session ID (forwarded to fallback project)", async () => {
     const { daemonWs } = await setupRelayEnv();
 
     const res = await sendRequest(daemonWs, {
@@ -441,10 +441,9 @@ describe("Relay routing: /session/:id/*", () => {
       path: "/session/nonexistent/message",
     });
 
-    // It should try refreshing sessions, then return 404
+    // The relay falls back to the first ready project for unknown sessions.
+    // The mock OpenCode returns 404 with plain text "Not found" for unknown session IDs.
     assert.equal(res.status, 404);
-    const body = res.body as { error: string };
-    assert.ok(body.error.includes("not found"));
   });
 });
 
