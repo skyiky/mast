@@ -30,6 +30,7 @@ describe("sessions store", () => {
       activeSessionId: null,
       deletedSessionIds: [],
       starredSessionIds: [],
+      selectedProject: null,
     });
   });
 
@@ -384,6 +385,34 @@ describe("sessions store", () => {
         makeMessage({ id: "m3", role: "user", parts: [{ type: "text", content: "Last user msg" }] }),
       ]);
       assert.equal(useSessionStore.getState().sessions[0].lastMessagePreview, "Last user msg");
+    });
+  });
+
+  // ===========================================================================
+  // Project selection
+  // ===========================================================================
+
+  describe("project selection", () => {
+    it("selectedProject starts as null (all projects)", () => {
+      assert.equal(useSessionStore.getState().selectedProject, null);
+    });
+
+    it("setSelectedProject sets the project filter", () => {
+      useSessionStore.getState().setSelectedProject("my-project");
+      assert.equal(useSessionStore.getState().selectedProject, "my-project");
+    });
+
+    it("setSelectedProject(null) clears the filter (all projects)", () => {
+      useSessionStore.getState().setSelectedProject("my-project");
+      useSessionStore.getState().setSelectedProject(null);
+      assert.equal(useSessionStore.getState().selectedProject, null);
+    });
+
+    it("setSelectedProject can change between projects", () => {
+      useSessionStore.getState().setSelectedProject("project-a");
+      assert.equal(useSessionStore.getState().selectedProject, "project-a");
+      useSessionStore.getState().setSelectedProject("project-b");
+      assert.equal(useSessionStore.getState().selectedProject, "project-b");
     });
   });
 });

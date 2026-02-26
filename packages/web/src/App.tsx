@@ -3,7 +3,7 @@ import { useConnectionStore } from "./stores/connection.js";
 import { Layout } from "./pages/Layout.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { PairPage } from "./pages/PairPage.js";
-import { HomePage } from "./pages/HomePage.js";
+import { SessionListPage } from "./pages/SessionListPage.js";
 import { ChatPage } from "./pages/ChatPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
@@ -32,7 +32,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<HomePage />} />
+          <Route index element={<SessionListPage />} />
           <Route path="chat/:id" element={<ChatPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

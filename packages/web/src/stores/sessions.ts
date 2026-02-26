@@ -27,6 +27,8 @@ interface SessionState {
   deletedSessionIds: string[];
   /** Session IDs the user has starred/pinned. Persisted via localStorage. */
   starredSessionIds: string[];
+  /** Currently selected project for filtering. null = show all projects. */
+  selectedProject: string | null;
 
   // Actions
   setSessions: (sessions: Session[]) => void;
@@ -35,6 +37,8 @@ interface SessionState {
   removeSession: (sessionId: string) => void;
   /** Toggle star/unstar on a session. */
   toggleStarred: (sessionId: string) => void;
+  /** Set the selected project filter. null = all projects. */
+  setSelectedProject: (project: string | null) => void;
   setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   setActiveSessionId: (id: string | null) => void;
   setLoadingSessions: (loading: boolean) => void;
@@ -74,6 +78,7 @@ export const useSessionStore = create<SessionState>()(
       activeSessionId: null,
       deletedSessionIds: [],
       starredSessionIds: [],
+      selectedProject: null,
 
       setSessions: (sessions) => set({ sessions }),
       addSession: (session) =>
@@ -103,6 +108,8 @@ export const useSessionStore = create<SessionState>()(
             ? state.starredSessionIds.filter((id) => id !== sessionId)
             : [...state.starredSessionIds, sessionId],
         })),
+
+      setSelectedProject: (project) => set({ selectedProject: project }),
 
       setMessages: (sessionId, messages) =>
         set((state) => {
