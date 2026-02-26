@@ -97,8 +97,9 @@ async function createDaemon(opts: {
   project: DetectedProject;
   port: number;
   orchestratorUrl: string;
+  embedded: boolean;
 }): Promise<{ shutdown: () => Promise<void> }> {
-  const { project, port, orchestratorUrl } = opts;
+  const { project, port, orchestratorUrl, embedded } = opts;
 
   // Use the CLI config directory (same one auto-detect wrote to)
   const projectConfig = new ProjectConfig(CONFIG_DIR);
@@ -138,22 +139,26 @@ async function createDaemon(opts: {
     },
   });
 
-  // Start the single project
+  // Start only the detected project (not all projects from config)
   console.log(`[mast] Starting OpenCode for ${project.name}...`);
-  const started = await projectManager.startAll();
-  console.log(`[mast] ${started.length} project(s) started`);
+  await projectManager.startProject({ name: project.name, directory: project.directory });
+  console.log(`[mast] Project "${project.name}" started`);
 
-  // Load or skip device key (pairing requires the full daemon flow;
-  // the CLI in MVP mode can use the hardcoded key or skip orchestrator)
-  const keyStore = new KeyStore();
-  let deviceKey = await keyStore.load();
-
-  if (!deviceKey) {
-    console.log("[mast] No device key found — using default key (pair via daemon for production)");
+  // In embedded mode, skip KeyStore — the in-process orchestrator uses HARDCODED_DEVICE_KEY.
+  // In external mode, load the paired device key from ~/.mast/device-key.json.
+  let deviceKey: string | undefined;
+  if (embedded) {
+    console.log("[mast] Embedded mode — using default device key");
+  } else {
+    const keyStore = new KeyStore();
+    deviceKey = await keyStore.load();
+    if (!deviceKey) {
+      console.log("[mast] No device key found — using default key (pair via daemon for production)");
+    }
   }
 
   // Connect relay to orchestrator
-  relay = new Relay(orchestratorUrl, projectManager, deviceKey ?? undefined);
+  relay = new Relay(orchestratorUrl, projectManager, deviceKey);
 
   try {
     await relay.connect();

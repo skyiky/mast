@@ -276,6 +276,44 @@ describe("embedded orchestrator", () => {
     assert.equal(orchestratorStopped, true);
   });
 
+  it("passes embedded=true to startDaemon when orchestrator is embedded", async () => {
+    let capturedOpts: any = null;
+
+    const deps = makeFakeDeps({
+      startOrchestrator: async () => ({
+        port: 3000,
+        shutdown: async () => {},
+      }),
+      startDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({ orchestratorUrl: "" }); // embedded mode
+
+    await startCli(config, deps);
+
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.embedded, true, "should pass embedded=true when orchestrator is in-process");
+  });
+
+  it("passes embedded=false to startDaemon when using external orchestrator", async () => {
+    let capturedOpts: any = null;
+
+    const deps = makeFakeDeps({
+      startDaemon: async (opts) => {
+        capturedOpts = opts;
+        return { shutdown: async () => {} };
+      },
+    });
+    const config = makeConfig({ orchestratorUrl: "ws://remote:3000" }); // external
+
+    await startCli(config, deps);
+
+    assert.ok(capturedOpts);
+    assert.equal(capturedOpts.embedded, false, "should pass embedded=false when using external orchestrator");
+  });
+
   it("logs the web UI URL when embedded", async () => {
     const deps = makeFakeDeps({
       startOrchestrator: async () => ({

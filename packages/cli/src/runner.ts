@@ -22,6 +22,8 @@ export interface CliDeps {
     project: DetectedProject;
     port: number;
     orchestratorUrl: string;
+    /** True when orchestrator is embedded (skip KeyStore, use hardcoded key) */
+    embedded: boolean;
   }) => Promise<{ shutdown: () => Promise<void> }>;
   /** Start the embedded orchestrator — returns port and shutdown */
   startOrchestrator: (opts: {
@@ -97,6 +99,7 @@ export async function startCli(
   // 2. Start embedded orchestrator (if no external URL provided)
   let orchestratorUrl = config.orchestratorUrl;
   let orchestratorShutdown: (() => Promise<void>) | undefined;
+  const embedded = !orchestratorUrl;
 
   if (!orchestratorUrl) {
     // Embedded mode — start orchestrator in-process
@@ -113,6 +116,7 @@ export async function startCli(
     project,
     port: config.port,
     orchestratorUrl,
+    embedded,
   });
 
   deps.log(`[mast] ${project.name} is running`);
