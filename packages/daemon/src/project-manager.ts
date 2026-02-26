@@ -41,6 +41,23 @@ export interface EnrichedSession {
   project: string; // project name from config
 }
 
+/**
+ * MCP server status as returned by OpenCode's GET /mcp endpoint.
+ * Each key is a server name, value contains at least a status string.
+ */
+export interface McpServerStatus {
+  status: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Aggregated MCP server info enriched with the owning project name.
+ */
+export interface EnrichedMcpServers {
+  project: string;
+  servers: Record<string, McpServerStatus>;
+}
+
 export interface ProjectManagerConfig {
   basePort?: number;          // Default 4096
   skipOpenCode?: boolean;     // MAST_SKIP_OPENCODE=1 equivalent
@@ -389,6 +406,41 @@ export class ProjectManager {
     }
 
     return allSessions;
+  }
+
+  /**
+   * List MCP servers across all running projects.
+   * Fetches GET /mcp from each running OpenCode instance and
+   * enriches the result with the project name.
+   */
+  async listAllMcpServers(): Promise<EnrichedMcpServers[]> {
+    const fetchPromises = [...this.projects.entries()].map(
+      async ([name, managed]): Promise<EnrichedMcpServers | null> => {
+        if (!managed.ready) return null;
+
+        try {
+          const res = await fetch(`${managed.opencode.baseUrl}/mcp`);
+          if (!res.ok) {
+            console.error(
+              `[project-manager] Failed to list MCP servers for "${name}": ${res.status}`,
+            );
+            return { project: name, servers: {} };
+          }
+
+          const servers = (await res.json()) as Record<string, McpServerStatus>;
+          return { project: name, servers };
+        } catch (err) {
+          console.error(
+            `[project-manager] Error listing MCP servers for "${name}":`,
+            err,
+          );
+          return { project: name, servers: {} };
+        }
+      },
+    );
+
+    const results = await Promise.all(fetchPromises);
+    return results.filter((r): r is EnrichedMcpServers => r !== null);
   }
 
   /**

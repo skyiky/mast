@@ -194,3 +194,19 @@ export async function addProject(
 export async function removeProject(config: ApiConfig, name: string) {
   return request(config, "DELETE", `/projects/${encodeURIComponent(name)}`);
 }
+
+// --- MCP server passthrough ---
+
+export interface McpServerStatus {
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface EnrichedMcpServers {
+  project: string;
+  servers: Record<string, McpServerStatus>;
+}
+
+export async function fetchMcpServers(config: ApiConfig) {
+  return request<EnrichedMcpServers[]>(config, "GET", "/mcp-servers");
+}

@@ -71,9 +71,13 @@ export function useApi() {
     (name: string) => api.removeProject(config, name),
     [serverUrl, apiToken],
   );
+  const mcpServers = useCallback(
+    () => api.fetchMcpServers(config),
+    [serverUrl, apiToken],
+  );
 
   return useMemo(
-    () => ({ health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert, projects, addProject, removeProject }),
+    () => ({ health, sessions, newSession, messages, prompt, approve, deny, pair, pushToken, abort, diff, providers, projectCurrent, revert, projects, addProject, removeProject, mcpServers }),
     [serverUrl, apiToken],
   );
 }

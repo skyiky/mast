@@ -15,7 +15,7 @@ import { type ThemeColors, fonts } from "../src/lib/themes";
 import { supabase } from "../src/lib/supabase";
 import AnimatedPressable from "../src/components/AnimatedPressable";
 import { SectionHeader, Divider } from "../src/components/SectionHeader";
-import type { Project } from "../src/lib/api";
+import type { Project, EnrichedMcpServers } from "../src/lib/api";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -28,6 +28,8 @@ export default function SettingsScreen() {
   const [addingProject, setAddingProject] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [mcpServers, setMcpServers] = useState<EnrichedMcpServers[]>([]);
+  const [loadingMcp, setLoadingMcp] = useState(false);
 
   const serverUrl = useConnectionStore((s) => s.serverUrl);
   const paired = useConnectionStore((s) => s.paired);
@@ -57,9 +59,26 @@ export default function SettingsScreen() {
     }
   }, [api, paired, serverUrl]);
 
+  // Fetch MCP servers from all projects
+  const loadMcpServers = useCallback(async () => {
+    if (!paired || !serverUrl) return;
+    setLoadingMcp(true);
+    try {
+      const res = await api.mcpServers();
+      if (res.status === 200 && Array.isArray(res.body)) {
+        setMcpServers(res.body as EnrichedMcpServers[]);
+      }
+    } catch (err) {
+      console.error("[settings] Failed to load MCP servers:", err);
+    } finally {
+      setLoadingMcp(false);
+    }
+  }, [api, paired, serverUrl]);
+
   useEffect(() => {
     loadProjects();
-  }, [loadProjects]);
+    loadMcpServers();
+  }, [loadProjects, loadMcpServers]);
 
   const handleRepair = () => {
     Alert.alert(
@@ -246,6 +265,47 @@ export default function SettingsScreen() {
             [add project]
           </Text>
         </AnimatedPressable>
+      </View>
+
+      {/* MCP Servers */}
+      <SectionHeader title="// mcp servers" colors={colors} />
+      <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+        {loadingMcp ? (
+          <View style={styles.projectLoading}>
+            <ActivityIndicator size="small" color={colors.muted} />
+          </View>
+        ) : mcpServers.length === 0 || mcpServers.every((p) => Object.keys(p.servers).length === 0) ? (
+          <View style={styles.projectEmpty}>
+            <Text style={[styles.projectEmptyText, { color: colors.dim }]}>
+              no mcp servers configured
+            </Text>
+          </View>
+        ) : (
+          mcpServers
+            .filter((p) => Object.keys(p.servers).length > 0)
+            .map((proj, projIdx) => (
+              <React.Fragment key={proj.project}>
+                {projIdx > 0 && <Divider colors={colors} />}
+                {mcpServers.filter((p) => Object.keys(p.servers).length > 0).length > 1 && (
+                  <View style={styles.mcpProjectHeader}>
+                    <Text style={[styles.mcpProjectName, { color: colors.muted }]}>
+                      {proj.project}
+                    </Text>
+                  </View>
+                )}
+                {Object.entries(proj.servers).map(([name, server], idx) => (
+                  <React.Fragment key={name}>
+                    {(idx > 0 || (projIdx > 0 && mcpServers.filter((p) => Object.keys(p.servers).length > 0).length <= 1)) && <Divider colors={colors} />}
+                    <McpServerRow
+                      name={name}
+                      status={server.status}
+                      colors={colors}
+                    />
+                  </React.Fragment>
+                ))}
+              </React.Fragment>
+            ))
+        )}
       </View>
 
       {/* Display */}
@@ -489,6 +549,35 @@ function StatusRow({
   );
 }
 
+function McpServerRow({
+  name,
+  status,
+  colors,
+}: {
+  name: string;
+  status: string;
+  colors: ThemeColors;
+}) {
+  const dotColor =
+    status === "connected"
+      ? colors.success
+      : status === "connecting"
+        ? colors.warning
+        : colors.dim;
+
+  return (
+    <View style={styles.mcpRow}>
+      <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
+      <Text style={[styles.mcpName, { color: colors.text }]} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={[styles.mcpStatus, { color: dotColor }]}>
+        {status}
+      </Text>
+    </View>
+  );
+}
+
 function OptionRow<T extends string>({
   label,
   options,
@@ -722,5 +811,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     minHeight: 44,
+  },
+  mcpProjectHeader: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  mcpProjectName: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  mcpRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  mcpName: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    flex: 1,
+  },
+  mcpStatus: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    marginLeft: 8,
   },
 });

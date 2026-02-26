@@ -166,6 +166,18 @@ export class Relay {
         return;
       }
 
+      // --- MCP server listing (aggregate from all projects) ---
+      if (method === "GET" && path === "/mcp-servers") {
+        const mcpServers = await this.projectManager.listAllMcpServers();
+        this.send({
+          type: "http_response",
+          requestId: request.requestId,
+          status: 200,
+          body: mcpServers,
+        } satisfies HttpResponse);
+        return;
+      }
+
       // --- Session listing (aggregate) ---
       if (method === "GET" && path === "/session") {
         const sessions = await this.projectManager.listAllSessions();

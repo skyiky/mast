@@ -283,6 +283,16 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     return c.json(result.body as object, result.status as 200);
   });
 
+  // --- MCP server routes ---
+
+  // List MCP servers from all projects
+  app.get("/mcp-servers", async (c) => {
+    const userId = c.get("userId");
+    const daemon = getDaemon(userId);
+    const result = await forward(daemon, "GET", "/mcp-servers");
+    return c.json(result.body as object, result.status as 200);
+  });
+
   // --- Project management routes ---
 
   // List managed projects
