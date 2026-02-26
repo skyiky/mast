@@ -3,6 +3,7 @@ dist/
 *.js.map
 .env
 .environment
+deploy.env
 supabase/.temp/
 
 # OS/tool artifacts

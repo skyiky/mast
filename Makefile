@@ -27,11 +27,15 @@ test-daemon: ## Run daemon tests only (15 tests)
 	npm test --workspace=packages/daemon
 
 # ─── Azure ────────────────────────────────────────────────────────────────────
+# Real values live in deploy.env (gitignored). Copy deploy.env.example to get started.
 
-REGISTRY    := your-registry
-RG          := your-resource-group
-APP         := mast-orchestrator
-IMAGE       := your-registry.azurecr.io/mast-orchestrator
+-include deploy.env
+
+REGISTRY    ?= REGISTRY_NOT_SET
+RG          ?= RG_NOT_SET
+APP         ?= mast-orchestrator
+IMAGE       ?= IMAGE_NOT_SET
+HEALTH_URL  ?= HEALTH_URL_NOT_SET
 VERSION     ?= latest
 
 .PHONY: deploy deploy-build deploy-update logs health
@@ -50,7 +54,7 @@ logs: ## Tail container app logs
 	az containerapp logs show --name $(APP) --resource-group $(RG) --tail 50 --follow
 
 health: ## Check orchestrator health endpoint
-	@curl -s https://your-orchestrator.azurecontainerapps.io/health | python -m json.tool
+	@curl -s $(HEALTH_URL) | python -m json.tool
 
 # ─── Supabase ─────────────────────────────────────────────────────────────────
 
