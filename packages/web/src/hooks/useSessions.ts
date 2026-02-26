@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSessionStore } from "../stores/sessions.js";
 import { useApi } from "./useApi.js";
-import type { Session } from "../lib/types.js";
+import { mapRawSessions } from "../lib/sessions-utils.js";
 
 export function useSessions() {
   const api = useApi();
@@ -29,15 +29,7 @@ export function useSessions() {
         const res = await api.sessions();
         if (cancelled) return;
         if (res.status === 200 && Array.isArray(res.body)) {
-          const mapped: Session[] = res.body.map((s: Record<string, unknown>) => ({
-            id: s.id as string,
-            title: (s.title ?? s.slug) as string | undefined,
-            directory: s.directory as string | undefined,
-            project: s.project as string | undefined,
-            createdAt: (s.createdAt ?? new Date().toISOString()) as string,
-            updatedAt: (s.createdAt ?? new Date().toISOString()) as string,
-          }));
-          setSessions(mapped);
+          setSessions(mapRawSessions(res.body as Record<string, unknown>[]));
         } else {
           setError("Failed to load sessions");
         }

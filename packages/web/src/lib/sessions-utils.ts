@@ -133,3 +133,45 @@ function formatDateLabel(dateKey: string): string {
   const monthName = d.toLocaleDateString("en-US", { month: "short" });
   return `${monthName} ${day}`;
 }
+
+// ---------------------------------------------------------------------------
+// API → Session mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a raw session object from the OpenCode REST API into our Session type.
+ *
+ * Handles the OpenCode format:
+ *   { id, slug, title, directory, project, time: { created, updated }, ... }
+ *
+ * Falls back gracefully for missing fields.
+ */
+export function mapRawSession(raw: Record<string, unknown>): Session {
+  const time = raw.time as Record<string, unknown> | undefined;
+  const createdIso =
+    (time?.created
+      ? new Date(time.created as number).toISOString()
+      : (raw.createdAt as string | undefined)) ??
+    new Date().toISOString();
+  const updatedIso =
+    (time?.updated
+      ? new Date(time.updated as number).toISOString()
+      : (raw.updatedAt as string | undefined)) ??
+    createdIso;
+
+  return {
+    id: raw.id as string,
+    title: (raw.title ?? raw.slug) as string | undefined,
+    directory: raw.directory as string | undefined,
+    project: raw.project as string | undefined,
+    createdAt: createdIso,
+    updatedAt: updatedIso,
+  };
+}
+
+/**
+ * Map an array of raw API session objects into typed Session[].
+ */
+export function mapRawSessions(raw: Record<string, unknown>[]): Session[] {
+  return raw.map(mapRawSession);
+}

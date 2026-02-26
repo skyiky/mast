@@ -10,6 +10,8 @@ import {
   getUniqueProjects,
   filterSessionsByProject,
   groupSessionsByDay,
+  mapRawSession,
+  mapRawSessions,
 } from "../src/lib/sessions-utils.js";
 import type { Session } from "../src/lib/types.js";
 
@@ -208,5 +210,98 @@ describe("groupSessionsByDay", () => {
     assert.notEqual(groups[0].label, "Yesterday");
     // Should contain "Jan" or "15" or similar date info
     assert.ok(groups[0].label.length > 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapRawSession / mapRawSessions
+// ---------------------------------------------------------------------------
+
+describe("mapRawSession", () => {
+  it("maps OpenCode format with time.created and time.updated", () => {
+    const raw = {
+      id: "ses_abc",
+      title: "happy-wizard",
+      slug: "happy-wizard",
+      directory: "/home/user/proj",
+      project: "my-project",
+      time: { created: 1772082860000, updated: 1772082900000 },
+    };
+    const result = mapRawSession(raw);
+    assert.equal(result.id, "ses_abc");
+    assert.equal(result.title, "happy-wizard");
+    assert.equal(result.directory, "/home/user/proj");
+    assert.equal(result.project, "my-project");
+    assert.equal(result.createdAt, new Date(1772082860000).toISOString());
+    assert.equal(result.updatedAt, new Date(1772082900000).toISOString());
+  });
+
+  it("falls back to slug when title is missing", () => {
+    const raw = { id: "ses_1", slug: "cool-slug", time: { created: 1000 } };
+    const result = mapRawSession(raw);
+    assert.equal(result.title, "cool-slug");
+  });
+
+  it("title is undefined when both title and slug are missing", () => {
+    const raw = { id: "ses_1", time: { created: 1000 } };
+    const result = mapRawSession(raw);
+    assert.equal(result.title, undefined);
+  });
+
+  it("falls back to createdAt/updatedAt string fields when time object is missing", () => {
+    const raw = {
+      id: "ses_1",
+      createdAt: "2026-02-25T10:00:00Z",
+      updatedAt: "2026-02-25T11:00:00Z",
+    };
+    const result = mapRawSession(raw);
+    assert.equal(result.createdAt, "2026-02-25T10:00:00Z");
+    assert.equal(result.updatedAt, "2026-02-25T11:00:00Z");
+  });
+
+  it("uses createdAt as updatedAt fallback when time.updated is missing", () => {
+    const raw = {
+      id: "ses_1",
+      time: { created: 1772082860000 },
+    };
+    const result = mapRawSession(raw);
+    // updatedAt should fall back to createdAt
+    assert.equal(result.updatedAt, result.createdAt);
+  });
+
+  it("defaults to current time when no timestamps are available", () => {
+    const before = new Date().toISOString();
+    const raw = { id: "ses_1" };
+    const result = mapRawSession(raw);
+    const after = new Date().toISOString();
+    // createdAt should be between before and after
+    assert.ok(result.createdAt >= before);
+    assert.ok(result.createdAt <= after);
+  });
+
+  it("directory and project are undefined when missing", () => {
+    const raw = { id: "ses_1", time: { created: 1000 } };
+    const result = mapRawSession(raw);
+    assert.equal(result.directory, undefined);
+    assert.equal(result.project, undefined);
+  });
+});
+
+describe("mapRawSessions", () => {
+  it("maps an array of raw sessions", () => {
+    const raw = [
+      { id: "ses_1", title: "first", time: { created: 1000, updated: 2000 } },
+      { id: "ses_2", slug: "second", time: { created: 3000, updated: 4000 } },
+    ];
+    const result = mapRawSessions(raw);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].id, "ses_1");
+    assert.equal(result[0].title, "first");
+    assert.equal(result[1].id, "ses_2");
+    assert.equal(result[1].title, "second");
+  });
+
+  it("returns empty array for empty input", () => {
+    assert.deepEqual(mapRawSessions([]), []);
   });
 });
