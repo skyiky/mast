@@ -1,0 +1,444 @@
+/* Chat page styles */
+
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Message list */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.chat-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 48px 16px;
+  font-size: 13px;
+}
+
+/* Message bubble */
+.message-bubble {
+  margin-bottom: 4px;
+  padding: 6px 0;
+}
+.message-bubble.assistant {
+  border-left: 2px solid var(--success);
+}
+
+.message-time {
+  font-size: 10px;
+  color: var(--dim);
+  text-align: right;
+  margin-bottom: 2px;
+  padding-right: 4px;
+}
+
+.message-content.user {
+  padding-left: 0;
+}
+.message-content.assistant {
+  padding-left: 10px;
+}
+
+/* Thinking / streaming */
+.message-thinking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.thinking-text {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+}
+.thinking-dot,
+.streaming-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* User message */
+.user-text-row {
+  display: flex;
+  gap: 6px;
+}
+.user-prompt {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.user-text {
+  font-size: 15px;
+  color: var(--bright);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Markdown content */
+.markdown-content {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.markdown-content h1 {
+  font-size: 20px;
+  color: var(--bright);
+  margin: 8px 0 4px;
+}
+.markdown-content h2 {
+  font-size: 17px;
+  color: var(--bright);
+  margin: 6px 0 4px;
+}
+.markdown-content h3 {
+  font-size: 15px;
+  color: var(--bright);
+  margin: 4px 0 2px;
+}
+.markdown-content p {
+  margin: 0 0 6px;
+}
+.markdown-content a {
+  color: var(--accent);
+}
+.markdown-content pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.markdown-content code {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+.markdown-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+}
+.markdown-content blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--muted);
+}
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+.markdown-content li {
+  margin: 2px 0;
+}
+.markdown-content li::marker {
+  color: var(--success);
+}
+.markdown-content strong {
+  color: var(--bright);
+  font-weight: 700;
+}
+.markdown-content em {
+  color: var(--muted);
+  font-style: italic;
+}
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+.markdown-content table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.markdown-content th {
+  background: var(--surface);
+  color: var(--bright);
+  font-weight: 600;
+}
+
+/* Tool call card */
+.tool-card {
+  margin: 2px 0;
+}
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.tool-card-header:hover {
+  opacity: 0.8;
+}
+.tool-toggle {
+  font-size: 12px;
+  color: var(--muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+.tool-label {
+  font-size: 12px;
+  color: var(--dim);
+}
+.tool-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--success);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-check {
+  font-size: 12px;
+  color: var(--success);
+  flex-shrink: 0;
+}
+.tool-card-body {
+  margin-left: 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+.tool-section {
+  margin-bottom: 4px;
+}
+.tool-section-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+.tool-section-content {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.tool-result-content {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--success);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.tool-show-more {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.tool-show-more:hover {
+  text-decoration: underline;
+}
+
+/* Reasoning box */
+.reasoning-box {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.reasoning-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.reasoning-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-weight: 300;
+}
+
+/* File box */
+.file-box {
+  margin-top: 6px;
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+.file-text {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Tool result box (full verbosity) */
+.tool-result-box {
+  margin-top: 4px;
+  background: var(--success-dim);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+.tool-result-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--success);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+/* Permission card */
+.permission-card {
+  margin: 6px 0;
+  border: 1px solid var(--warning);
+  background: var(--warning-dim);
+  overflow: hidden;
+}
+.permission-body {
+  padding: 10px 12px;
+}
+.permission-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning);
+  margin-bottom: 4px;
+}
+.permission-description {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.permission-actions {
+  display: flex;
+  border-top: 1px solid var(--warning);
+}
+.permission-btn {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+.permission-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.permission-btn.deny {
+  color: var(--danger);
+  border-right: 1px solid var(--warning);
+}
+.permission-btn.approve {
+  color: var(--success);
+}
+.permission-btn:hover:not(:disabled) {
+  opacity: 0.8;
+}
+
+.permission-status {
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+}
+.permission-status.approved {
+  background: var(--success-dim);
+  color: var(--success);
+}
+.permission-status.denied {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+/* Input bar */
+.chat-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  min-height: 36px;
+  max-height: 120px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.chat-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.chat-input::placeholder {
+  color: var(--dim);
+}
+
+.chat-send-btn {
+  padding: 8px 16px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.chat-send-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+.chat-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
