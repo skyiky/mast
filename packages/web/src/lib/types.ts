@@ -66,33 +66,57 @@ export interface RawApiPart {
   state?: Record<string, unknown>;
 }
 
-/** Raw message shape from OpenCode REST API. */
-export interface RawApiMessage {
+/** Info envelope inside an OpenCode REST API message. */
+export interface RawApiMessageInfo {
   id: string;
   role: string;
-  /** Top-level content field — OpenCode puts user message text here instead of in parts. */
+  sessionID?: string;
+  finish?: string;
+  time?: { created?: number; completed?: number };
+}
+
+/**
+ * Raw message shape from OpenCode REST API.
+ *
+ * OpenCode returns `{ info: { id, role, ... }, parts: [...] }`.
+ * The orchestrator cache returns flat `{ id, role, parts, streaming, createdAt }`.
+ * We handle both shapes.
+ */
+export interface RawApiMessage {
+  // --- OpenCode REST shape ---
+  info?: RawApiMessageInfo;
+  // --- Flat / cache shape ---
+  id?: string;
+  role?: string;
   content?: string;
   parts?: RawApiPart[];
   streaming?: boolean;
   createdAt?: string;
 }
 
-/** Map raw API messages to ChatMessage[]. Handles field-name differences
- *  between OpenCode wire format (`text`, `tool`, `state`) and our internal types. */
+/** Map raw API messages to ChatMessage[]. Handles both OpenCode REST format
+ *  (`{ info, parts }`) and flat orchestrator-cache format. */
 export function mapApiMessages(raw: RawApiMessage[]): ChatMessage[] {
   return raw.map((m) => {
+    // Extract id/role from either info envelope or flat fields
+    const id = m.info?.id ?? m.id ?? "";
+    const role = m.info?.role ?? m.role ?? "";
+    const createdAt = m.info?.time?.created
+      ? new Date(m.info.time.created).toISOString()
+      : m.createdAt ?? new Date().toISOString();
+    const streaming = m.streaming ?? false;
+
     const mappedParts = (m.parts ?? []).map(mapApiPart);
-    // OpenCode puts user message text in a top-level `content` field, not in parts.
-    // Synthesize a text part so the message bubble has something to render.
+    // Fallback: if parts is empty but flat `content` exists (rare), synthesize a text part
     if (mappedParts.length === 0 && m.content) {
       mappedParts.push({ type: "text", content: m.content });
     }
     return {
-      id: m.id,
-      role: (m.role as "user" | "assistant") || "assistant",
+      id,
+      role: (role as "user" | "assistant") || "assistant",
       parts: mappedParts,
-      streaming: m.streaming ?? false,
-      createdAt: m.createdAt ?? new Date().toISOString(),
+      streaming,
+      createdAt,
     };
   });
 }
