@@ -189,7 +189,7 @@ export function useWebSocket() {
   const handleRef = useRef<WebSocketHandle | null>(null);
 
   useEffect(() => {
-    if (!wsUrl || !paired) return;
+    if (!wsUrl || !apiToken || !paired) return;
 
     handleRef.current = connectWebSocket(
       wsUrl,

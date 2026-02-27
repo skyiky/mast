@@ -73,11 +73,13 @@ export function startServer(
     /** Build a status snapshot for phones of a specific user */
     function buildPhoneStatus(userId: string): PhoneStatusMessage {
       const daemon = daemonConnections.get(userId);
-      return {
-        type: "status",
+      const status = {
+        type: "status" as const,
         daemonConnected: daemon?.isConnected() ?? false,
         opencodeReady: lastOpencodeReady.get(userId) ?? false,
       };
+      console.log(`[orchestrator] buildPhoneStatus user=${userId} daemon=${status.daemonConnected} opencode=${status.opencodeReady} hasDaemonEntry=${!!daemon} allDaemonKeys=[${[...daemonConnections.keys()].join(', ')}]`);
+      return status;
     }
 
     /**
@@ -196,9 +198,14 @@ export function startServer(
           }
 
           if (!isPairing && !userId) {
+            console.warn(`[orchestrator] daemon auth failed — token not resolved (first 20 chars: ${token?.slice(0, 20)}…)`);
             socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
             socket.destroy();
             return;
+          }
+
+          if (userId) {
+            console.log(`[orchestrator] daemon resolved userId=${userId} via ${pairingManager.isValidKey(token!) ? 'pairingManager' : 'supabase'}`);
           }
 
           wss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
@@ -231,6 +238,7 @@ export function startServer(
           // Normal authenticated daemon connection
           const daemon = getOrCreateDaemon(userId!);
           daemon.setConnection(ws);
+          console.log(`[orchestrator] daemon connected as userId=${userId!} isConnected=${daemon.isConnected()} daemonConnections keys=[${[...daemonConnections.keys()].join(', ')}]`);
 
           // Update device key last_seen
           if (supabaseStore && token && token !== HARDCODED_DEVICE_KEY) {
@@ -320,6 +328,7 @@ export function startServer(
         }
 
         if (!userId) {
+          console.warn(`[orchestrator] phone auth failed — no userId resolved from token (first 20 chars: ${token?.slice(0, 20)}…)`);
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
@@ -327,12 +336,16 @@ export function startServer(
 
         phoneWss.handleUpgrade(request, socket, head, (ws: WsWebSocket) => {
           phoneConnections.add(userId!, ws);
+          console.log(`[orchestrator] phone upgraded user=${userId!.slice(0, 8)}… count=${phoneConnections.countForUser(userId!)}`);
 
           // Send current daemon status immediately on connect
-          phoneConnections.sendStatus(ws, buildPhoneStatus(userId!));
+          const status = buildPhoneStatus(userId!);
+          console.log(`[orchestrator] sending initial status to phone user=${userId!.slice(0, 8)}… status=${JSON.stringify(status)}`);
+          phoneConnections.sendStatus(ws, status);
 
           ws.on("close", () => {
             phoneConnections.remove(userId!, ws);
+            console.log(`[orchestrator] phone closed user=${userId!.slice(0, 8)}… remaining=${phoneConnections.countForUser(userId!)}`);
           });
 
           ws.on("error", (err) => {
