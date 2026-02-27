@@ -274,12 +274,16 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
           }).catch(() => {});
         }
       }
-      return c.json(result.body as object, result.status as 200);
+      // Tag sessions as live (from a running OpenCode instance)
+      const body = Array.isArray(result.body)
+        ? (result.body as Array<Record<string, unknown>>).map((s) => ({ ...s, live: true }))
+        : result.body;
+      return c.json(body as object, result.status as 200);
     }
-    // Daemon offline — serve from cache
+    // Daemon offline — serve from cache (not live)
     if (store) {
       const sessions = await store.listSessions(userId);
-      return c.json(sessions, 200);
+      return c.json(sessions.map((s) => ({ ...s, live: false })), 200);
     }
     return c.json({ error: "Daemon not connected" }, 503);
   });

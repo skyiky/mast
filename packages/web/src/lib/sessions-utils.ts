@@ -82,7 +82,7 @@ export function filterSessionsByProject(
 // ---------------------------------------------------------------------------
 
 export interface SessionGroup {
-  /** Display label: "Starred", "Idle", "Archived", or a date string */
+  /** Display label: "Starred", "Live", "Cached", or a date string */
   label: string;
   /** Sort key for ordering groups */
   dateKey: string;
@@ -91,18 +91,15 @@ export interface SessionGroup {
 }
 
 // ---------------------------------------------------------------------------
-// Status-based grouping (Starred / Idle / Archived)
+// Status-based grouping (Starred / Live / Cached)
 // ---------------------------------------------------------------------------
 
-/** Threshold for "idle" — sessions updated within this window are considered idle/active */
-const IDLE_THRESHOLD_MS = 2 * 3_600_000; // 2 hours
-
 /**
- * Group sessions by status: Starred, Idle (recent), Archived (older).
+ * Group sessions by status: Starred, Live, Cached.
  *
  * - Starred: sessions whose ID is in the starredIds set (always at top)
- * - Idle: sessions updated within the last 2 hours OR with hasActivity flag
- * - Archived: everything else
+ * - Live: sessions with `live === true` (from a running daemon)
+ * - Cached: sessions with `live === false` or undefined (daemon offline)
  *
  * Within each group, sessions are sorted newest first.
  * Empty groups are omitted.
@@ -114,9 +111,8 @@ export function groupSessionsByStatus(
   if (sessions.length === 0) return [];
 
   const starred: Session[] = [];
-  const idle: Session[] = [];
-  const archived: Session[] = [];
-  const now = Date.now();
+  const live: Session[] = [];
+  const cached: Session[] = [];
 
   // Sort all sessions newest first
   const sorted = [...sessions].sort(
@@ -126,20 +122,17 @@ export function groupSessionsByStatus(
   for (const s of sorted) {
     if (starredIds.has(s.id)) {
       starred.push(s);
+    } else if (s.live === true) {
+      live.push(s);
     } else {
-      const age = now - new Date(s.updatedAt).getTime();
-      if (age < IDLE_THRESHOLD_MS || s.hasActivity) {
-        idle.push(s);
-      } else {
-        archived.push(s);
-      }
+      cached.push(s);
     }
   }
 
   const result: SessionGroup[] = [];
   if (starred.length > 0) result.push({ label: "Starred", dateKey: "0-starred", sessions: starred });
-  if (idle.length > 0) result.push({ label: "Idle", dateKey: "1-idle", sessions: idle });
-  if (archived.length > 0) result.push({ label: "Archived", dateKey: "2-archived", sessions: archived });
+  if (live.length > 0) result.push({ label: "Live", dateKey: "1-live", sessions: live });
+  if (cached.length > 0) result.push({ label: "Cached", dateKey: "2-cached", sessions: cached });
 
   return result;
 }
@@ -264,6 +257,7 @@ export function mapRawSession(raw: Record<string, unknown>): Session {
     project: raw.project as string | undefined,
     createdAt: createdIso,
     updatedAt: updatedIso,
+    live: raw.live as boolean | undefined,
   };
 }
 

@@ -1,6 +1,6 @@
 /**
  * SessionListPage — main panel session list, shown at `/`.
- * Displays sessions filtered by selected project, grouped by Idle/Archived.
+ * Displays sessions filtered by selected project, grouped by Live/Cached.
  * Replaces the old HomePage.
  */
 
@@ -80,7 +80,7 @@ export function SessionListPage() {
         <div className="session-list-content">
           {groups.map((group) => (
             <div key={group.dateKey} className="session-list-group">
-              <div className="session-list-group-label">{group.label}</div>
+              <div className={`session-list-group-label${group.label === "Live" ? " session-list-group-label--live" : ""}`}>{group.label}</div>
               {group.sessions.map((session) => (
                 <SessionRow
                   key={session.id}

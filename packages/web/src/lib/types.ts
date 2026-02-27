@@ -40,6 +40,8 @@ export interface Session {
   lastMessagePreview?: string;
   /** Whether the session has unread messages */
   hasActivity?: boolean;
+  /** True when sourced from a running OpenCode instance (daemon online) */
+  live?: boolean;
 }
 
 export interface PermissionRequest {
