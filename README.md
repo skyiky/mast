@@ -180,7 +180,3 @@ The daemon runs on your dev machine. The mobile app runs on your phone via Expo 
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features, including gaps identified against Claude Code Remote Control.
-
-## License
-
-MIT
