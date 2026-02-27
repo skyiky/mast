@@ -128,6 +128,20 @@ export function createApp(deps: RouteDeps): Hono<{ Variables: Variables }> {
     });
   }
 
+  // --- CORS middleware (dev: allow cross-origin from Vite dev server) ---
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("Origin");
+    if (origin) {
+      c.header("Access-Control-Allow-Origin", origin);
+      c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      c.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    }
+    if (c.req.method === "OPTIONS") {
+      return c.body(null, 204);
+    }
+    await next();
+  });
+
   // --- Health (no auth) ---
   app.get("/health", (c) => {
     // Sum daemon connections across all users

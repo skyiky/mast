@@ -416,7 +416,19 @@
   }
 
   .main-content {
-    /* Add top padding for hamburger button */
+    /* Add top padding for hamburger button on pages without their own header */
     padding-top: 48px;
+  }
+
+  /* Chat page has its own header — undo the hamburger padding */
+  .main-content:has(.chat-page) {
+    padding-top: 0;
+  }
+
+  .sidebar-header {
+    /* Make room for the fixed ✕ close button so it doesn't overlap "mast" */
+    padding-left: 56px;
+    min-height: 56px;
+    box-sizing: border-box;
   }
 }

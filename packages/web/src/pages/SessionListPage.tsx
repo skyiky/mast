@@ -187,7 +187,13 @@ SessionRow.displayName = "SessionRow";
 function isLocalUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url);
-    return hostname === "localhost" || hostname === "127.0.0.1";
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+    );
   } catch {
     return false;
   }

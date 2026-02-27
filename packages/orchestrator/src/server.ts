@@ -361,7 +361,7 @@ export function startServer(
       socket.destroy();
     });
 
-    server.listen(port, () => {
+    server.listen(port, "0.0.0.0", () => {
       const addr = server.address();
       const actualPort = typeof addr === "object" && addr ? addr.port : port;
       console.log(`Mast orchestrator listening on port ${actualPort}`);
