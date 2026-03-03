@@ -1,17 +1,21 @@
 /**
- * SettingsPage — connection status, toggles, sign out.
+ * SettingsPage — connection status, projects, toggles, sign out.
  *
  * Sections:
  * - Connection status (server URL, WS, daemon, OpenCode)
+ * - Projects (list, add, remove)
  * - Verbosity toggle (standard / full)
  * - Mode toggle (build / plan)
  * - Re-pair device
  * - Sign out
  */
 
+import { useState, useCallback, useEffect } from "react";
 import { useConnectionStore } from "../stores/connection.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useApi } from "../hooks/useApi.js";
 import { supabase } from "../lib/supabase.js";
+import type { Project } from "../lib/api.js";
 import "../styles/settings.css";
 
 export function SettingsPage() {
@@ -26,6 +30,76 @@ export function SettingsPage() {
   const toggleVerbosity = useSettingsStore((s) => s.toggleVerbosity);
   const sessionMode = useSettingsStore((s) => s.sessionMode);
   const toggleSessionMode = useSettingsStore((s) => s.toggleSessionMode);
+
+  const api = useApi();
+
+  // --- Project state ---
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [addFormVisible, setAddFormVisible] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectDir, setProjectDir] = useState("");
+  const [addingProject, setAddingProject] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const loadProjects = useCallback(async () => {
+    setLoadingProjects(true);
+    try {
+      const res = await api.projects();
+      if (res.status === 200 && Array.isArray(res.body)) {
+        setProjects(res.body as Project[]);
+      }
+    } catch {
+      // best-effort
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  const handleAddProject = async () => {
+    const name = projectName.trim();
+    const dir = projectDir.trim();
+    if (!name || !dir) {
+      setAddError("both name and directory are required");
+      return;
+    }
+    setAddingProject(true);
+    setAddError(null);
+    try {
+      const res = await api.addProject(name, dir);
+      if (res.status >= 200 && res.status < 300) {
+        setAddFormVisible(false);
+        setProjectName("");
+        setProjectDir("");
+        await loadProjects();
+      } else {
+        const msg = (res.body as any)?.error ?? "failed to add project";
+        setAddError(msg);
+      }
+    } catch {
+      setAddError("failed to add project — check connection");
+    } finally {
+      setAddingProject(false);
+    }
+  };
+
+  const handleRemoveProject = async (project: Project) => {
+    if (!confirm(`Remove "${project.name}"? This will shut down its OpenCode instance.`)) {
+      return;
+    }
+    try {
+      const res = await api.removeProject(project.name);
+      if (res.status === 200) {
+        await loadProjects();
+      }
+    } catch {
+      // best-effort
+    }
+  };
 
   return (
     <div className="settings-page">
@@ -61,6 +135,98 @@ export function SettingsPage() {
               {opencodeReady ? "ready" : "not ready"}
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* // projects */}
+      <div className="settings-section">
+        <div className="settings-section-title">// projects</div>
+        <div className="settings-card">
+          {loadingProjects && projects.length === 0 ? (
+            <div className="settings-row">
+              <span className="settings-label" style={{ color: "var(--dim)" }}>loading...</span>
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="settings-row">
+              <span className="settings-label" style={{ color: "var(--dim)" }}>no projects configured</span>
+            </div>
+          ) : (
+            projects.map((project, index) => (
+              <div key={project.name}>
+                {index > 0 && <div className="settings-divider" />}
+                <div className="settings-project-row">
+                  <StatusDot ok={project.ready} />
+                  <div className="settings-project-info">
+                    <span className="settings-project-name">{project.name}</span>
+                    <span className="settings-project-dir">{project.directory}</span>
+                  </div>
+                  <span className="settings-project-status" data-ready={project.ready}>
+                    {project.ready ? "ready" : "starting"}
+                  </span>
+                  <button
+                    className="settings-project-remove"
+                    onClick={() => handleRemoveProject(project)}
+                    title={`Remove ${project.name}`}
+                  >
+                    x
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+          <div className="settings-divider" />
+          {addFormVisible ? (
+            <div className="settings-add-form">
+              <label className="settings-input-label">name</label>
+              <input
+                className="settings-input"
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="my-project"
+                autoFocus
+              />
+              <label className="settings-input-label">directory</label>
+              <input
+                className="settings-input"
+                type="text"
+                value={projectDir}
+                onChange={(e) => setProjectDir(e.target.value)}
+                placeholder="/home/user/projects/my-project"
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddProject(); }}
+              />
+              {addError && (
+                <div className="settings-add-error">{addError}</div>
+              )}
+              <div className="settings-add-actions">
+                <button
+                  className="settings-action-btn success"
+                  onClick={handleAddProject}
+                  disabled={addingProject}
+                >
+                  {addingProject ? "adding..." : "[add]"}
+                </button>
+                <button
+                  className="settings-action-btn"
+                  onClick={() => {
+                    setAddFormVisible(false);
+                    setProjectName("");
+                    setProjectDir("");
+                    setAddError(null);
+                  }}
+                >
+                  [cancel]
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="settings-action-btn accent"
+              onClick={() => setAddFormVisible(true)}
+            >
+              [add project]
+            </button>
+          )}
         </div>
       </div>
 

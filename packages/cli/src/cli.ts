@@ -147,10 +147,17 @@ async function createDaemon(opts: {
     },
   });
 
-  // Start only the detected project (not all projects from config)
-  console.log(`[mast] Starting OpenCode for ${project.name}...`);
-  await projectManager.startProject({ name: project.name, directory: project.directory });
-  console.log(`[mast] Project "${project.name}" started`);
+  // Start all projects from config (matching standalone daemon behavior)
+  const projects = await projectConfig.load();
+  if (projects.length === 0) {
+    console.warn("[mast] No projects configured in ~/.mast/projects.json");
+  } else {
+    console.log(`[mast] Found ${projects.length} project(s): ${projects.map((p) => p.name).join(", ")}`);
+  }
+
+  console.log("[mast] Starting OpenCode instances...");
+  const started = await projectManager.startAll();
+  console.log(`[mast] ${started.length}/${projects.length} project(s) started`);
 
   // In embedded mode, skip KeyStore — the in-process orchestrator uses HARDCODED_DEVICE_KEY.
   // In external mode, load the paired device key or run pairing flow.
@@ -162,8 +169,9 @@ async function createDaemon(opts: {
     deviceKey = await keyStore.load();
     if (!deviceKey) {
       console.log("[mast] No device key found — opening browser for pairing");
+      const projectNames = projects.map((p) => p.name);
       deviceKey = await runPairingFlow(orchestratorUrl, {
-        projects: [project.name],
+        projects: projectNames,
         onBrowserOpened: (url) => {
           console.log("[mast] Opening browser for pairing confirmation...");
           console.log(`[mast] If the browser didn't open, visit: ${url}`);
@@ -188,8 +196,9 @@ async function createDaemon(opts: {
       const keyStore = new KeyStore();
       await keyStore.clear();
 
+      const projectNames = projects.map((p) => p.name);
       const newKey = await runPairingFlow(orchestratorUrl, {
-        projects: [project.name],
+        projects: projectNames,
         onBrowserOpened: (url) => {
           console.log("[mast] Opening browser for pairing confirmation...");
           console.log(`[mast] If the browser didn't open, visit: ${url}`);

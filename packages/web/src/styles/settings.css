@@ -115,9 +115,118 @@
 .settings-action-btn:hover {
   opacity: 0.7;
 }
+.settings-action-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .settings-action-btn.warning {
   color: var(--warning);
 }
 .settings-action-btn.danger {
   color: var(--danger);
+}
+.settings-action-btn.accent {
+  color: var(--accent);
+}
+.settings-action-btn.success {
+  color: var(--success);
+}
+
+/* Project rows */
+.settings-project-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  min-height: 40px;
+}
+.settings-project-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-project-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-project-dir {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-project-status {
+  font-size: 11px;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+.settings-project-status[data-ready="true"] {
+  color: var(--success);
+}
+.settings-project-remove {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.settings-project-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Add project form */
+.settings-add-form {
+  padding: 10px 14px;
+}
+.settings-input-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+  margin-top: 8px;
+}
+.settings-input-label:first-child {
+  margin-top: 0;
+}
+.settings-input {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--bright);
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.settings-input::placeholder {
+  color: var(--dim);
+}
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.settings-add-error {
+  font-size: 11px;
+  color: var(--danger);
+  margin-top: 6px;
+}
+.settings-add-actions {
+  display: flex;
+  gap: 0;
+  margin-top: 10px;
 }
