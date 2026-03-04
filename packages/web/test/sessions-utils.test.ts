@@ -15,6 +15,7 @@ import {
   mapRawSessions,
   formatProjectPath,
   formatSessionTime,
+  isSubagentSession,
 } from "../src/lib/sessions-utils.js";
 import type { Session } from "../src/lib/types.js";
 
@@ -29,9 +30,11 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     createdAt: overrides.createdAt ?? "2026-02-25T12:00:00Z",
     updatedAt: overrides.updatedAt ?? "2026-02-25T12:00:00Z",
     project: overrides.project,
+    parentID: overrides.parentID,
     directory: overrides.directory,
     lastMessagePreview: overrides.lastMessagePreview,
     hasActivity: overrides.hasActivity,
+    live: overrides.live ?? true,
   };
 }
 
@@ -288,6 +291,22 @@ describe("mapRawSession", () => {
     assert.equal(result.directory, undefined);
     assert.equal(result.project, undefined);
   });
+
+  it("maps parentID when present (subagent session)", () => {
+    const raw = {
+      id: "ses_child",
+      parentID: "ses_parent",
+      time: { created: 1000, updated: 2000 },
+    };
+    const result = mapRawSession(raw);
+    assert.equal(result.parentID, "ses_parent");
+  });
+
+  it("parentID is undefined when not present (top-level session)", () => {
+    const raw = { id: "ses_1", time: { created: 1000 } };
+    const result = mapRawSession(raw);
+    assert.equal(result.parentID, undefined);
+  });
 });
 
 describe("mapRawSessions", () => {
@@ -318,49 +337,49 @@ describe("groupSessionsByStatus", () => {
     assert.deepEqual(groupSessionsByStatus([], new Set()), []);
   });
 
-  it("puts recently-updated sessions (< 2h) in Idle group", () => {
+  it("puts recently-updated sessions (< 2h) in Live group", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString(); // 30 min ago
     const sessions = [makeSession({ id: "1", updatedAt: recent })];
     const groups = groupSessionsByStatus(sessions, new Set());
     assert.equal(groups.length, 1);
-    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].label, "Live");
     assert.equal(groups[0].sessions.length, 1);
   });
 
-  it("puts old sessions in Archived group", () => {
+  it("puts old sessions in Cached group", () => {
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString(); // 2 days ago
     const sessions = [makeSession({ id: "1", updatedAt: old })];
     const groups = groupSessionsByStatus(sessions, new Set());
     assert.equal(groups.length, 1);
-    assert.equal(groups[0].label, "Archived");
+    assert.equal(groups[0].label, "Cached");
   });
 
-  it("separates Idle and Archived sessions", () => {
+  it("separates Live and Cached sessions", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString();
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
     const sessions = [
-      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "live1", updatedAt: recent }),
       makeSession({ id: "old1", updatedAt: old }),
-      makeSession({ id: "idle2", updatedAt: recent }),
+      makeSession({ id: "live2", updatedAt: recent }),
     ];
     const groups = groupSessionsByStatus(sessions, new Set());
     assert.equal(groups.length, 2);
-    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].label, "Live");
     assert.equal(groups[0].sessions.length, 2);
-    assert.equal(groups[1].label, "Archived");
+    assert.equal(groups[1].label, "Cached");
     assert.equal(groups[1].sessions.length, 1);
   });
 
-  it("Idle group comes before Archived", () => {
+  it("Live group comes before Cached", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString();
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
     const sessions = [
       makeSession({ id: "old1", updatedAt: old }),
-      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "live1", updatedAt: recent }),
     ];
     const groups = groupSessionsByStatus(sessions, new Set());
-    assert.equal(groups[0].label, "Idle");
-    assert.equal(groups[1].label, "Archived");
+    assert.equal(groups[0].label, "Live");
+    assert.equal(groups[1].label, "Cached");
   });
 
   it("sorts sessions within each group by updatedAt descending", () => {
@@ -382,7 +401,7 @@ describe("groupSessionsByStatus", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString();
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
     const sessions = [
-      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "live1", updatedAt: recent }),
       makeSession({ id: "starred1", updatedAt: old }),
       makeSession({ id: "old1", updatedAt: old }),
     ];
@@ -393,40 +412,83 @@ describe("groupSessionsByStatus", () => {
     assert.equal(groups[0].sessions[0].id, "starred1");
   });
 
-  it("starred sessions are excluded from Idle and Archived groups", () => {
+  it("starred sessions are excluded from Live and Cached groups", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString();
     const sessions = [
       makeSession({ id: "both", updatedAt: recent }),
-      makeSession({ id: "idle1", updatedAt: recent }),
+      makeSession({ id: "live1", updatedAt: recent }),
     ];
     const starred = new Set(["both"]);
     const groups = groupSessionsByStatus(sessions, starred);
-    // Starred group should have "both", Idle should only have "idle1"
     const starredGroup = groups.find((g) => g.label === "Starred");
-    const idleGroup = groups.find((g) => g.label === "Idle");
+    const liveGroup = groups.find((g) => g.label === "Live");
     assert.ok(starredGroup);
     assert.equal(starredGroup.sessions.length, 1);
     assert.equal(starredGroup.sessions[0].id, "both");
-    assert.ok(idleGroup);
-    assert.equal(idleGroup.sessions.length, 1);
-    assert.equal(idleGroup.sessions[0].id, "idle1");
+    assert.ok(liveGroup);
+    assert.equal(liveGroup.sessions.length, 1);
+    assert.equal(liveGroup.sessions[0].id, "live1");
   });
 
   it("omits empty groups", () => {
     const recent = new Date(Date.now() - 30 * 60_000).toISOString();
     const sessions = [makeSession({ id: "1", updatedAt: recent })];
     const groups = groupSessionsByStatus(sessions, new Set());
-    // Should only have Idle, no Starred or Archived
     assert.equal(groups.length, 1);
-    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].label, "Live");
   });
 
-  it("sessions with hasActivity flag are treated as Idle regardless of age", () => {
+  it("sessions with hasActivity flag are treated as Live regardless of age", () => {
     const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
     const sessions = [makeSession({ id: "active-old", updatedAt: old, hasActivity: true })];
     const groups = groupSessionsByStatus(sessions, new Set());
-    assert.equal(groups[0].label, "Idle");
+    assert.equal(groups[0].label, "Live");
     assert.equal(groups[0].sessions[0].id, "active-old");
+  });
+
+  it("sessions with live:false always go to Cached regardless of recency", () => {
+    const recent = new Date(Date.now() - 5 * 60_000).toISOString(); // 5 min ago
+    const sessions = [makeSession({ id: "offline1", updatedAt: recent, live: false })];
+    const groups = groupSessionsByStatus(sessions, new Set());
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].label, "Cached");
+    assert.equal(groups[0].sessions[0].id, "offline1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSubagentSession
+// ---------------------------------------------------------------------------
+
+describe("isSubagentSession", () => {
+  it("returns true for @explore subagent title", () => {
+    const session = makeSession({ title: "Find subagent session filtering (@explore subagent)" });
+    assert.equal(isSubagentSession(session), true);
+  });
+
+  it("returns true for @general subagent title", () => {
+    const session = makeSession({ title: "Run build and fix errors (@general subagent)" });
+    assert.equal(isSubagentSession(session), true);
+  });
+
+  it("returns false for regular session title", () => {
+    const session = makeSession({ title: "My regular session" });
+    assert.equal(isSubagentSession(session), false);
+  });
+
+  it("returns false for undefined title", () => {
+    const session = makeSession({ title: undefined });
+    assert.equal(isSubagentSession(session), false);
+  });
+
+  it("returns false when subagent appears mid-title but not in pattern", () => {
+    const session = makeSession({ title: "discuss subagent architecture" });
+    assert.equal(isSubagentSession(session), false);
+  });
+
+  it("returns true when parentID is set even without subagent title", () => {
+    const session = makeSession({ title: "normal title", parentID: "ses_parent123" });
+    assert.equal(isSubagentSession(session), true);
   });
 });
 

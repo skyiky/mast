@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSessionStore } from "../stores/sessions.js";
 import { useConnectionStore } from "../stores/connection.js";
 import { useApi } from "./useApi.js";
-import { mapRawSessions } from "../lib/sessions-utils.js";
+import { mapRawSessions, isSubagentSession } from "../lib/sessions-utils.js";
 
 export function useSessions() {
   const api = useApi();
@@ -46,8 +46,10 @@ export function useSessions() {
     return () => { cancelled = true; };
   }, [api, setSessions, setLoadingSessions, daemonConnected]);
 
-  // Filter out deleted sessions
-  const visible = sessions.filter((s) => !deletedSessionIds.includes(s.id));
+  // Filter out deleted sessions and subagent sessions
+  const visible = sessions.filter(
+    (s) => !deletedSessionIds.includes(s.id) && !isSubagentSession(s),
+  );
 
   // Create new session
   const createSession = useCallback(async (project?: string): Promise<string | null> => {

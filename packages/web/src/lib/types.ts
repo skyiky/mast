@@ -34,6 +34,8 @@ export interface Session {
   directory?: string;
   /** Project name this session belongs to (from multi-project daemon) */
   project?: string;
+  /** Parent session ID — set for subagent sessions spawned by the Task tool */
+  parentID?: string;
   createdAt: string;
   updatedAt: string;
   /** Last user prompt text (truncated, for session list preview) */

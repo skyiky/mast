@@ -34,6 +34,7 @@ export interface EnrichedSession {
   id: string;
   slug?: string;
   projectID?: string;
+  parentID?: string;
   directory: string;
   title?: string;
   version?: string;
@@ -436,6 +437,7 @@ export class ProjectManager {
               id: s.id as string,
               slug: s.slug as string | undefined,
               projectID: s.projectID as string | undefined,
+              parentID: s.parentID as string | undefined,
               directory: s.directory as string,
               title: s.title as string | undefined,
               version: s.version as string | undefined,

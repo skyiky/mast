@@ -10,9 +10,10 @@
  * - Sign out
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { useConnectionStore } from "../stores/connection.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useProjectStore } from "../stores/projects.js";
 import { useApi } from "../hooks/useApi.js";
 import { supabase } from "../lib/supabase.js";
 import type { Project } from "../lib/api.js";
@@ -33,32 +34,17 @@ export function SettingsPage() {
 
   const api = useApi();
 
-  // --- Project state ---
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loadingProjects, setLoadingProjects] = useState(false);
+  // --- Project state (shared Zustand store) ---
+  const projects = useProjectStore((s) => s.projects);
+  const loadingProjects = useProjectStore((s) => s.loading);
+  const storeSetProjects = useProjectStore((s) => s.setProjects);
+  const removeLocally = useProjectStore((s) => s.removeLocally);
+  const addLocally = useProjectStore((s) => s.addLocally);
   const [addFormVisible, setAddFormVisible] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDir, setProjectDir] = useState("");
   const [addingProject, setAddingProject] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-
-  const loadProjects = useCallback(async () => {
-    setLoadingProjects(true);
-    try {
-      const res = await api.projects();
-      if (res.status === 200 && Array.isArray(res.body)) {
-        setProjects(res.body as Project[]);
-      }
-    } catch {
-      // best-effort
-    } finally {
-      setLoadingProjects(false);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
 
   const handleAddProject = async () => {
     const name = projectName.trim();
@@ -75,7 +61,17 @@ export function SettingsPage() {
         setAddFormVisible(false);
         setProjectName("");
         setProjectDir("");
-        await loadProjects();
+        // Update shared store with the new project
+        const body = res.body as Project;
+        if (body?.name) {
+          addLocally(body);
+        } else {
+          // Fallback: re-fetch all projects
+          const listRes = await api.projects();
+          if (listRes.status === 200 && Array.isArray(listRes.body)) {
+            storeSetProjects(listRes.body as Project[]);
+          }
+        }
       } else {
         const msg = (res.body as any)?.error ?? "failed to add project";
         setAddError(msg);
@@ -91,13 +87,25 @@ export function SettingsPage() {
     if (!confirm(`Remove "${project.name}"? This will shut down its OpenCode instance.`)) {
       return;
     }
+    // Optimistically remove from shared store
+    removeLocally(project.name);
     try {
       const res = await api.removeProject(project.name);
-      if (res.status === 200) {
-        await loadProjects();
+      if (res.status !== 200) {
+        // Revert: re-fetch the real list
+        const listRes = await api.projects();
+        if (listRes.status === 200 && Array.isArray(listRes.body)) {
+          storeSetProjects(listRes.body as Project[]);
+        }
       }
     } catch {
-      // best-effort
+      // Revert: re-fetch
+      try {
+        const listRes = await api.projects();
+        if (listRes.status === 200 && Array.isArray(listRes.body)) {
+          storeSetProjects(listRes.body as Project[]);
+        }
+      } catch { /* best-effort */ }
     }
   };
 

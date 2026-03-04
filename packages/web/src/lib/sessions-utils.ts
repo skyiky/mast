@@ -54,6 +54,18 @@ export function formatSessionTime(
 // Project extraction & filtering
 // ---------------------------------------------------------------------------
 
+/** Subagent sessions have titles ending with "(@<type> subagent)" */
+const SUBAGENT_TITLE_RE = /\(@\S+ subagent\)$/;
+
+/**
+ * Returns true if the session is a subagent (spawned by the Task tool).
+ * Detected by title pattern or by parentID if present.
+ */
+export function isSubagentSession(session: Session): boolean {
+  if (session.parentID) return true;
+  return !!session.title && SUBAGENT_TITLE_RE.test(session.title);
+}
+
 /**
  * Extract unique project names from sessions, sorted alphabetically.
  * Sessions without a project are excluded.
@@ -94,19 +106,26 @@ export interface SessionGroup {
 // Status-based grouping (Starred / Live / Cached)
 // ---------------------------------------------------------------------------
 
+/** Sessions updated within this window are considered "Live". */
+const LIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 /**
  * Group sessions by status: Starred, Live, Cached.
  *
  * - Starred: sessions whose ID is in the starredIds set (always at top)
- * - Live: sessions with `live === true` (from a running daemon)
- * - Cached: sessions with `live === false` or undefined (daemon offline)
+ * - Live: sessions from a running daemon (`live !== false`) that have been
+ *   updated within the last 2 hours, or that have unread activity
+ * - Cached: everything else (daemon offline, or stale sessions)
  *
  * Within each group, sessions are sorted newest first.
  * Empty groups are omitted.
+ *
+ * Accepts optional `now` timestamp for testability.
  */
 export function groupSessionsByStatus(
   sessions: Session[],
   starredIds: Set<string>,
+  now: number = Date.now(),
 ): SessionGroup[] {
   if (sessions.length === 0) return [];
 
@@ -122,10 +141,17 @@ export function groupSessionsByStatus(
   for (const s of sorted) {
     if (starredIds.has(s.id)) {
       starred.push(s);
-    } else if (s.live === true) {
-      live.push(s);
-    } else {
+    } else if (s.live === false) {
+      // Daemon offline — always cached
       cached.push(s);
+    } else {
+      // Daemon online (live === true or undefined) — use time threshold
+      const age = now - new Date(s.updatedAt).getTime();
+      if (age < LIVE_THRESHOLD_MS || s.hasActivity) {
+        live.push(s);
+      } else {
+        cached.push(s);
+      }
     }
   }
 
@@ -255,6 +281,7 @@ export function mapRawSession(raw: Record<string, unknown>): Session {
     title: (raw.title ?? raw.slug) as string | undefined,
     directory: raw.directory as string | undefined,
     project: raw.project as string | undefined,
+    parentID: raw.parentID as string | undefined,
     createdAt: createdIso,
     updatedAt: updatedIso,
     live: raw.live as boolean | undefined,

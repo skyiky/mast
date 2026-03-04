@@ -57,6 +57,13 @@ function MessageBubbleInner({ message, verbosity }: MessageBubbleProps) {
           </div>
         )}
 
+        {/* Aborted / empty — finished streaming but no content produced */}
+        {!message.streaming && !hasVisibleContent && !isUser && (
+          <div className="message-aborted">
+            <span>[aborted]</span>
+          </div>
+        )}
+
         {/* Streaming indicator — streaming with content */}
         {message.streaming && hasVisibleContent && (
           <span className="streaming-indicator" />

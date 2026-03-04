@@ -1,18 +1,25 @@
 /**
- * useProjects — fetches the project list from the orchestrator.
+ * useProjects — fetches the project list and keeps it in a shared Zustand store.
  *
  * Returns `{ projects, loading }` where projects is the list of configured
  * projects with name, directory, port, and ready status.
+ *
+ * Because the data lives in the Zustand store, any component consuming
+ * useProjectStore will see updates immediately (e.g., when SettingsPage
+ * removes a project, the sidebar updates without a page reload).
  */
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useApi } from "./useApi.js";
+import { useProjectStore } from "../stores/projects.js";
 import type { Project } from "../lib/api.js";
 
 export function useProjects() {
   const api = useApi();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const projects = useProjectStore((s) => s.projects);
+  const loading = useProjectStore((s) => s.loading);
+  const setProjects = useProjectStore((s) => s.setProjects);
+  const setLoading = useProjectStore((s) => s.setLoading);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +41,7 @@ export function useProjects() {
 
     load();
     return () => { cancelled = true; };
-  }, [api]);
+  }, [api, setProjects, setLoading]);
 
   return { projects, loading };
 }

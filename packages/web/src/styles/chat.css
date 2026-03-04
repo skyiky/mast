@@ -66,6 +66,13 @@
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+/* Aborted message */
+.message-aborted {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--dim);
+}
+
 /* User message */
 .user-text-row {
   display: flex;
