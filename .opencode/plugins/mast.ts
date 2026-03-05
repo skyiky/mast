@@ -1112,14 +1112,30 @@ class MiniRelay {
 
   private async subscribeSse(): Promise<void> {
     this.sseAbort = new AbortController();
-    const sseUrl = `${this.openCodeBaseUrl}/event`;
-    debug(`[mast-relay] Subscribing to SSE via raw fetch: ${sseUrl}`);
+
+    // Extract the SDK's internal fetch function and base URL.
+    // The SDK's fetch knows how to reach OpenCode on the correct port/transport,
+    // whereas raw globalThis.fetch() fails with "connection refused" because
+    // OpenCode's TUI uses a random port that baseUrl doesn't reflect.
+    let sdkFetch: typeof globalThis.fetch = globalThis.fetch;
+    let baseUrl = this.openCodeBaseUrl;
+    try {
+      const config = (this.sdkClient as any)._client.getConfig();
+      sdkFetch = config.fetch ?? globalThis.fetch;
+      if (config.baseUrl) baseUrl = config.baseUrl.replace(/\/+$/, "");
+    } catch {
+      // Fall back to defaults
+    }
+
+    const sseUrl = `${baseUrl}/event`;
+    debug(`[mast-relay] Subscribing to SSE: ${sseUrl}`);
 
     try {
-      const res = await fetch(sseUrl, {
-        signal: this.sseAbort.signal,
+      const req = new Request(sseUrl, {
         headers: { Accept: "text/event-stream" },
+        signal: this.sseAbort.signal,
       });
+      const res = await sdkFetch(req);
 
       if (!res.ok) {
         console.error(`[mast-relay] SSE connect failed: ${res.status} ${res.statusText}`);
