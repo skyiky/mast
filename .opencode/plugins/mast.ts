@@ -1129,7 +1129,14 @@ class MiniRelay {
           const parsed = event as any;
           if (parsed?.type) {
             // Extract session ID from event to apply visibility filter.
-            // OpenCode events carry sessionID in properties or data.
+            // OpenCode events carry sessionID in different locations depending
+            // on event type:
+            //   message.updated        → properties.info.sessionID
+            //   message.part.updated   → properties.part.sessionID
+            //   message.part.delta     → properties.sessionID or properties.part.sessionID
+            //   session.status         → properties.sessionID
+            //   permission.*           → properties.sessionID
+            //   session.created/updated/deleted → properties.info.id (session's own ID)
             const eventSessionId =
               parsed.properties?.sessionID ??
               parsed.data?.sessionID ??
@@ -1137,6 +1144,10 @@ class MiniRelay {
               parsed.data?.sessionId ??
               parsed.properties?.info?.sessionID ??
               parsed.data?.info?.sessionID ??
+              parsed.properties?.part?.sessionID ??
+              parsed.data?.part?.sessionID ??
+              parsed.properties?.info?.id ??
+              parsed.data?.info?.id ??
               null;
 
             // If the event is session-scoped and the session is NOT visible, skip it.
@@ -1158,6 +1169,13 @@ class MiniRelay {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       console.error("[mast-relay] SSE stream error:", err);
+    }
+
+    // Stream ended (normal close or error) — reconnect after a short delay
+    // unless we were intentionally disconnected.
+    if (this.shouldReconnect && !this.sseAbort?.signal.aborted) {
+      debug("[mast-relay] SSE stream ended, reconnecting in 2s...");
+      setTimeout(() => this.subscribeSse(), 2000);
     }
   }
 
