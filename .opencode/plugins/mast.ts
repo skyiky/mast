@@ -145,6 +145,30 @@ async function saveDeviceKey(deviceKey: string): Promise<void> {
   );
 }
 
+const VISIBLE_SESSIONS_PATH = join(MAST_DIR, "visible-sessions.json");
+
+async function loadVisibleSessions(): Promise<Set<string>> {
+  try {
+    const raw = await readFile(VISIBLE_SESSIONS_PATH, "utf-8");
+    const data = JSON.parse(raw);
+    if (data?.sessionIds && Array.isArray(data.sessionIds)) {
+      return new Set(data.sessionIds.filter((id: unknown) => typeof id === "string"));
+    }
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveVisibleSessions(ids: Set<string>): Promise<void> {
+  await mkdir(MAST_DIR, { recursive: true });
+  await writeFile(
+    VISIBLE_SESSIONS_PATH,
+    JSON.stringify({ sessionIds: [...ids], updatedAt: new Date().toISOString() }, null, 2),
+    "utf-8",
+  );
+}
+
 // =============================================================================
 // Browser opener
 // =============================================================================
@@ -247,8 +271,8 @@ class MiniRelay {
   private shouldReconnect = true;
 
   /**
-   * Set of session IDs visible to the remote client. Starts with the session
-   * from which `/rc` was invoked. Grows when the phone creates new sessions.
+   * Reference to the module-level visible session set. Shared across
+   * relay reconnections. Persisted to disk by the caller.
    */
   private readonly visibleSessionIds: Set<string>;
 
@@ -258,10 +282,9 @@ class MiniRelay {
     private deviceKey: string,
     private projectName: string,
     private projectDirectory: string,
-    initialSessionId: string,
+    visibleSessionIds: Set<string>,
   ) {
-    this.visibleSessionIds = new Set([initialSessionId]);
-    debug(`[mast-relay] Session scope: initially only ${initialSessionId}`);
+    this.visibleSessionIds = visibleSessionIds;
   }
 
   /**
@@ -508,6 +531,7 @@ class MiniRelay {
         const newId = (data as any)?.id;
         if (newId) {
           this.visibleSessionIds.add(newId);
+          saveVisibleSessions(this.visibleSessionIds).catch(() => {});
           debug(`[mast-relay] Added session ${newId} to visible set (now ${this.visibleSessionIds.size})`);
         }
         this.send({
@@ -874,6 +898,9 @@ class MiniRelay {
           return;
         }
         debug(`[mast-relay] SDK session.delete(${sessionId}) → success`);
+        // Remove from visible set so deleted sessions don't accumulate
+        this.visibleSessionIds.delete(sessionId);
+        saveVisibleSessions(this.visibleSessionIds).catch(() => {});
         this.send({
           type: "http_response",
           requestId: req.requestId,
@@ -1190,6 +1217,13 @@ type PluginState = "idle" | "pairing" | "connected";
 
 let state: PluginState = "idle";
 let relay: MiniRelay | null = null;
+/**
+ * Set of session IDs visible to the remote client. Persisted to
+ * ~/.mast/visible-sessions.json so it survives OpenCode restarts.
+ * Hydrated on plugin load, updated when /rc is invoked or sessions
+ * are created/deleted from the phone.
+ */
+let visibleSessionIds = new Set<string>();
 
 // =============================================================================
 // Core handler — called by command hook or event fallback
@@ -1260,6 +1294,13 @@ async function handleRcCommand(
     return "No orchestrator URL configured. Use: /rc wss://your-orchestrator-url";
   }
 
+  // --- Track this session as visible to the remote client ---
+  if (sessionId) {
+    visibleSessionIds.add(sessionId);
+    await saveVisibleSessions(visibleSessionIds);
+    debug(`[mast] Added session ${sessionId} to visible set (now ${visibleSessionIds.size})`);
+  }
+
   // --- Resolve device key ---
   let deviceKey = await loadDeviceKey();
 
@@ -1276,7 +1317,7 @@ async function handleRcCommand(
 
         // Auto-connect after pairing
         try {
-          relay = new MiniRelay(orchestratorUrl!, sdkClient, key, projectName, projectDirectory, sessionId);
+          relay = new MiniRelay(orchestratorUrl!, sdkClient, key, projectName, projectDirectory, visibleSessionIds);
           await relay.connect();
           state = "connected";
           log("[mast] Remote control is now active.");
@@ -1295,7 +1336,7 @@ async function handleRcCommand(
 
   // --- Connect relay ---
   try {
-    relay = new MiniRelay(orchestratorUrl, sdkClient, deviceKey, projectName, projectDirectory, sessionId);
+    relay = new MiniRelay(orchestratorUrl, sdkClient, deviceKey, projectName, projectDirectory, visibleSessionIds);
     await relay.connect();
     state = "connected";
     log("[mast] Remote control is now active.");
@@ -1314,7 +1355,11 @@ async function handleRcCommand(
 export const MastPlugin: Plugin = async ({ client, directory }) => {
   const projectName = basename(directory);
   const projectDirectory = directory;
-  debug(`[mast] Plugin loaded — /rc available for remote control (project=${projectName})`);
+
+  // Hydrate the visible session set from disk
+  visibleSessionIds = await loadVisibleSessions();
+
+  debug(`[mast] Plugin loaded — /rc available for remote control (project=${projectName}, ${visibleSessionIds.size} persisted sessions)`);
 
   const log = (msg: string) => {
     try {
