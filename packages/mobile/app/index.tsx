@@ -107,11 +107,20 @@ export default function SessionListScreen() {
             lastMessagePreview: prev?.lastMessagePreview,
           };
         });
-        setSessions(mapped);
+
+        // Deduplicate by session ID (defensive — keeps first occurrence)
+        const seenIds = new Set<string>();
+        const dedupedMapped = mapped.filter((s) => {
+          if (seenIds.has(s.id)) return false;
+          seenIds.add(s.id);
+          return true;
+        });
+
+        setSessions(dedupedMapped);
 
         // Backfill previews for sessions that don't have one yet.
         // Fire in parallel, don't block the UI — previews will pop in.
-        const needPreview = mapped.filter((s) => !s.lastMessagePreview);
+        const needPreview = dedupedMapped.filter((s) => !s.lastMessagePreview);
         if (needPreview.length > 0) {
           Promise.all(
             needPreview.map(async (s) => {

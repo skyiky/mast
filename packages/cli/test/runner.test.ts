@@ -43,6 +43,8 @@ function makeFakeDeps(overrides?: Partial<CliDeps>): CliDeps & { logs: string[];
     attachDaemon: async (_opts) => ({
       shutdown: async () => {},
     }),
+    loadConfigUrl: async () => undefined,
+    saveConfigUrl: async () => {},
     configDir: "/tmp/test-mast",
     version: "0.0.1-test",
     ...overrides,

@@ -21,6 +21,7 @@ import { Relay, AuthError } from "@mast/daemon/relay";
 import { KeyStore } from "@mast/daemon/key-store";
 import { runPairingFlow } from "@mast/daemon/pairing-flow";
 import { discoverOpenCode } from "@mast/daemon/discover";
+import { ConfigStore } from "@mast/daemon/config-store";
 import type { DaemonStatus, EventMessage } from "@mast/shared";
 import type { DetectedProject } from "./auto-detect.js";
 
@@ -29,6 +30,7 @@ process.title = "mast-cli";
 
 const VERSION = "0.0.1";
 const CONFIG_DIR = join(homedir(), ".mast");
+const configStore = new ConfigStore(CONFIG_DIR);
 
 /**
  * Resolve the web client dist path at runtime.
@@ -79,6 +81,12 @@ async function main() {
     },
     attachDaemon: async (opts) => {
       return createAttachDaemon(opts);
+    },
+    loadConfigUrl: async () => {
+      return await configStore.get("orchestratorUrl");
+    },
+    saveConfigUrl: async (url) => {
+      await configStore.set("orchestratorUrl", url);
     },
   });
 

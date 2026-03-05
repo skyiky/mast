@@ -75,12 +75,10 @@ export const useConnectionStore = create<ConnectionState>()(
       },
 
       reset: () => {
-        set((state) => ({
+        set({
           ...DEFAULT_STATE,
-          // Keep auth intact — only reset pairing & connection state
-          apiToken: state.apiToken,
           authReady: true,
-        }));
+        });
       },
     }),
     {

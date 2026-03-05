@@ -45,6 +45,10 @@ export interface CliDeps {
     orchestratorUrl: string;
     embedded: boolean;
   }) => Promise<{ shutdown: () => Promise<void> }>;
+  /** Load saved orchestrator URL from config (returns undefined if not set) */
+  loadConfigUrl: () => Promise<string | undefined>;
+  /** Save orchestrator URL to config for future use */
+  saveConfigUrl: (url: string) => Promise<void>;
   /** Get the config directory (default ~/.mast) */
   configDir: string;
   /** Package version for --version output */
@@ -124,9 +128,22 @@ export async function startCli(
       }
     }
 
-    // Start embedded orchestrator if needed (same logic as "start" command)
+    // Resolve orchestrator URL: CLI flag → saved config → embedded
     let orchestratorUrl = config.orchestratorUrl;
     let orchestratorShutdown: (() => Promise<void>) | undefined;
+
+    if (!orchestratorUrl) {
+      // No CLI flag — try saved config
+      orchestratorUrl = await deps.loadConfigUrl() ?? "";
+      if (orchestratorUrl) {
+        deps.log(`[mast] Using saved orchestrator URL: ${orchestratorUrl}`);
+      }
+    } else {
+      // CLI flag provided — save for future use
+      await deps.saveConfigUrl(orchestratorUrl);
+      deps.log(`[mast] Saved orchestrator URL to config`);
+    }
+
     const embedded = !orchestratorUrl;
 
     if (!orchestratorUrl) {
@@ -171,9 +188,22 @@ export async function startCli(
     deps.log(`[mast] Found existing project: ${project.name}`);
   }
 
-  // 2. Start embedded orchestrator (if no external URL provided)
+  // 2. Resolve orchestrator URL: CLI flag → saved config → embedded
   let orchestratorUrl = config.orchestratorUrl;
   let orchestratorShutdown: (() => Promise<void>) | undefined;
+
+  if (!orchestratorUrl) {
+    // No CLI flag — try saved config
+    orchestratorUrl = await deps.loadConfigUrl() ?? "";
+    if (orchestratorUrl) {
+      deps.log(`[mast] Using saved orchestrator URL: ${orchestratorUrl}`);
+    }
+  } else {
+    // CLI flag provided — save for future use
+    await deps.saveConfigUrl(orchestratorUrl);
+    deps.log(`[mast] Saved orchestrator URL to config`);
+  }
+
   const embedded = !orchestratorUrl;
 
   if (!orchestratorUrl) {

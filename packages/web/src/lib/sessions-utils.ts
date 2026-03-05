@@ -290,7 +290,16 @@ export function mapRawSession(raw: Record<string, unknown>): Session {
 
 /**
  * Map an array of raw API session objects into typed Session[].
+ * Deduplicates by session ID (keeps first occurrence).
  */
 export function mapRawSessions(raw: Record<string, unknown>[]): Session[] {
-  return raw.map(mapRawSession);
+  const seen = new Set<string>();
+  const result: Session[] = [];
+  for (const r of raw) {
+    const session = mapRawSession(r);
+    if (seen.has(session.id)) continue;
+    seen.add(session.id);
+    result.push(session);
+  }
+  return result;
 }

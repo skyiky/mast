@@ -13,15 +13,15 @@ The workflow is async by design. You plan with the agent, put your phone away wh
 ## Architecture
 
 ```
-┌─────────┐       WSS        ┌──────────────┐       WSS        ┌─────────────┐
-│  Phone  │ ──────────────── │ Orchestrator │ ──────────────── │   Daemon    │
+┌─────────┐       WSS        ┌──────────────┐       WSS        ┌──────────────┐
+│  Phone  │ ──────────────── │ Orchestrator │ ──────────────── │   Daemon     │
 │ (Expo)  │   outbound-only  │   (Azure)    │   outbound-only  │ (dev machine)│
-└─────────┘                  └──────────────┘                  └──────┬──────┘
+└─────────┘                  └──────────────┘                  └──────┬───────┘
                                                                       │ HTTP + SSE
-                                                                ┌─────┴──────┐
-                                                                │ OpenCode ×N│
+                                                                ┌─────┴────────┐
+                                                                │ OpenCode ×N  │
                                                                 │ (per project)│
-                                                                └────────────┘
+                                                                └──────────────┘
 ```
 
 All connections are outbound. Neither the phone nor the dev machine expose inbound ports. Credentials stay on the dev machine.
@@ -111,6 +111,28 @@ Environment variables:
 - `MAST_ORCHESTRATOR_URL` — orchestrator WebSocket URL (default: `ws://localhost:3000`)
 - `OPENCODE_PORT` — base port for OpenCode instances (default: `4096`)
 - `MAST_SKIP_OPENCODE=1` — skip starting OpenCode (for testing)
+
+### Running the Mast Daemon Locally with a Cloud Orchestrator
+There are two ways to do this, depending on whether you use the CLI or run the daemon directly:
+Option 1: Via CLI (npx mast)
+npx mast --orchestrator wss://mast-orchestrator.calmflower-ed9bbb2e.eastus.azurecontainerapps.io
+The --orchestrator flag (packages/cli/src/args.ts:44) tells the CLI to skip starting an embedded orchestrator and instead connect outbound to the specified cloud URL. On first run, it will trigger the pairing flow (opens a browser for you to approve the device). After pairing, the device key is stored at ~/.mast/device-key.json for subsequent runs.
+Option 2: Running the daemon workspace directly
+set MAST_ORCHESTRATOR_URL=wss://mast-orchestrator.calmflower-ed9bbb2e.eastus.azurecontainerapps.io
+npm run dev --workspace=packages/daemon
+The MAST_ORCHESTRATOR_URL env var (packages/daemon/src/index.ts:24) defaults to ws://localhost:3000. Setting it to the cloud WSS URL redirects the daemon's outbound WebSocket connection.
+Key differences from fully-local mode
+| Aspect | Embedded (default) | Cloud orchestrator |
+|---|---|---|
+| Auth | Hardcoded dev key, no pairing | Device key from ~/.mast/device-key.json, pairing flow on first use |
+| Web UI | Served locally at http://localhost:3000 | Served by the cloud orchestrator |
+| Protocol | ws:// | wss:// (TLS required) |
+Cloud orchestrator URL
+The deployed Azure URL is in deploy.env:6:
+https://mast-orchestrator.calmflower-ed9bbb2e.eastus.azurecontainerapps.io
+Use the wss:// scheme (not https://) when passing it as the orchestrator URL, since the daemon connects via WebSocket.
+Pairing flow note
+If you haven't paired before (no ~/.mast/device-key.json), the daemon will open a browser to the web UI's pairing confirmation page. You can override that URL with MAST_WEB_URL if the cloud web UI is at a different address than the orchestrator (packages/daemon/src/pairing-flow.ts:67)
 
 ### Run the mobile app
 
