@@ -1117,6 +1117,10 @@ class MiniRelay {
     try {
       const { stream } = await this.sdkClient.event.subscribe({
         signal: this.sseAbort.signal,
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": null as any, // remove default application/json from GET request
+        },
       });
 
       debug("[mast-relay] SSE stream connected via SDK");
