@@ -1112,62 +1112,79 @@ class MiniRelay {
 
   private async subscribeSse(): Promise<void> {
     this.sseAbort = new AbortController();
-    debug(`[mast-relay] Subscribing to SSE via SDK client.event.subscribe()`);
+    const sseUrl = `${this.openCodeBaseUrl}/event`;
+    debug(`[mast-relay] Subscribing to SSE via raw fetch: ${sseUrl}`);
 
     try {
-      const { stream } = await this.sdkClient.event.subscribe({
+      const res = await fetch(sseUrl, {
         signal: this.sseAbort.signal,
-        headers: {
-          Accept: "text/event-stream",
-          "Content-Type": null as any, // remove default application/json from GET request
-        },
+        headers: { Accept: "text/event-stream" },
       });
 
-      debug("[mast-relay] SSE stream connected via SDK");
+      if (!res.ok) {
+        console.error(`[mast-relay] SSE connect failed: ${res.status} ${res.statusText}`);
+        return;
+      }
 
-      for await (const event of stream) {
-        if (this.sseAbort?.signal.aborted) break;
+      if (!res.body) {
+        console.error("[mast-relay] SSE response has no body");
+        return;
+      }
 
-        try {
-          // SDK yields parsed Event objects (type + properties/data)
-          const parsed = event as any;
-          if (parsed?.type) {
-            // Extract session ID from event to apply visibility filter.
-            // OpenCode events carry sessionID in different locations depending
-            // on event type:
-            //   message.updated        → properties.info.sessionID
-            //   message.part.updated   → properties.part.sessionID
-            //   message.part.delta     → properties.sessionID or properties.part.sessionID
-            //   session.status         → properties.sessionID
-            //   permission.*           → properties.sessionID
-            //   session.created/updated/deleted → properties.info.id (session's own ID)
-            const eventSessionId =
-              parsed.properties?.sessionID ??
-              parsed.data?.sessionID ??
-              parsed.properties?.sessionId ??
-              parsed.data?.sessionId ??
-              parsed.properties?.info?.sessionID ??
-              parsed.data?.info?.sessionID ??
-              parsed.properties?.part?.sessionID ??
-              parsed.data?.part?.sessionID ??
-              parsed.properties?.info?.id ??
-              parsed.data?.info?.id ??
-              null;
+      debug("[mast-relay] SSE stream connected");
 
-            // If the event is session-scoped and the session is NOT visible, skip it.
-            if (eventSessionId && !this.visibleSessionIds.has(eventSessionId)) {
-              continue;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse complete SSE events (terminated by double newline)
+        while (true) {
+          const eventEnd = buffer.indexOf("\n\n");
+          if (eventEnd === -1) break;
+
+          const eventBlock = buffer.slice(0, eventEnd);
+          buffer = buffer.slice(eventEnd + 2);
+
+          for (const line of eventBlock.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              if (!parsed?.type) continue;
+
+              // Normalize: OpenCode sends { type, properties }, we need { type, data }
+              const { type, properties, data, ...rest } = parsed;
+              const eventData = data ?? properties ?? rest;
+
+              // Extract session ID to apply visibility filter.
+              const eventSessionId =
+                eventData?.sessionID ??
+                eventData?.sessionId ??
+                eventData?.info?.sessionID ??
+                eventData?.part?.sessionID ??
+                eventData?.info?.id ??
+                null;
+
+              // If session-scoped and not visible, skip.
+              if (eventSessionId && !this.visibleSessionIds.has(eventSessionId)) {
+                continue;
+              }
+
+              this.send({
+                type: "event",
+                event: { type, data: eventData },
+                timestamp: new Date().toISOString(),
+              } satisfies EventMessage);
+            } catch {
+              // Skip unparseable event data
             }
-
-            const { type, properties, data, ...rest } = parsed;
-            this.send({
-              type: "event",
-              event: { type, data: data ?? properties ?? rest },
-              timestamp: new Date().toISOString(),
-            } satisfies EventMessage);
           }
-        } catch {
-          // Skip unparseable events
         }
       }
     } catch (err) {
@@ -1175,8 +1192,7 @@ class MiniRelay {
       console.error("[mast-relay] SSE stream error:", err);
     }
 
-    // Stream ended (normal close or error) — reconnect after a short delay
-    // unless we were intentionally disconnected.
+    // Stream ended — reconnect after a short delay unless intentionally disconnected.
     if (this.shouldReconnect && !this.sseAbort?.signal.aborted) {
       debug("[mast-relay] SSE stream ended, reconnecting in 2s...");
       setTimeout(() => this.subscribeSse(), 2000);
