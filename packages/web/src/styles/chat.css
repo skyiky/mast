@@ -11,6 +11,7 @@
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
 }
 
@@ -25,6 +26,7 @@
 .message-bubble {
   margin-bottom: 4px;
   padding: 6px 0;
+  min-width: 0;
 }
 .message-bubble.assistant {
   border-left: 2px solid var(--success);
@@ -97,6 +99,8 @@
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
+  min-width: 0;
+  overflow-x: hidden;
 }
 .markdown-content h1 {
   font-size: 20px;
@@ -176,6 +180,9 @@
   border-collapse: collapse;
   margin: 6px 0;
   font-size: 12px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .markdown-content th,
 .markdown-content td {
@@ -725,6 +732,7 @@
     padding-left: 56px; /* clear the hamburger button */
     min-height: 56px;
     box-sizing: border-box;
+    overflow: hidden;
   }
 }
 
